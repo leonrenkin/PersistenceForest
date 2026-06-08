@@ -186,8 +186,6 @@ class SignedChain:
         Return a new SignedChain where simplices that appear with opposite
         orientations cancel out.
 
-        If an underlying simplex appears only with one orientation, it is kept.
-
         Returns
         -------
         SignedChain
@@ -205,6 +203,37 @@ class SignedChain:
             elif c < 0:
                 cleaned.add((simplex, -1))
             # if c == 0, the +1 and -1 cancel -> drop this edge completely
+        
+        return SignedChain(
+            signed_simplices=cleaned,
+            active_start=self.active_start,
+            active_end=self.active_end,
+        )
+
+    def only_double_simplices(self) -> "SignedChain":
+        """
+        Return a new SignedChain where only simplices that appear with opposite
+        orientations are preseverd.
+
+        Returns
+        -------
+        SignedChain
+            Chain with only simplices that appear with both orientations.
+        """
+        # aggregate orientations per underlying simplex
+        coeffs: Dict[tuple, int] = {}
+        for simplex, orientation in self.signed_simplices:
+            coeffs[simplex] = coeffs.get(simplex, 0) + 1
+
+        cleaned: Set[tuple] = set()
+        for simplex, c in coeffs.items():
+            if c == 2:
+                cleaned.add((simplex, 1))
+                cleaned.add((simplex, -1))
+            elif c == 1:
+                continue
+            else: 
+                raise ValueError("Each simplex should only appear once or twice.")
         
         return SignedChain(
             signed_simplices=cleaned,
