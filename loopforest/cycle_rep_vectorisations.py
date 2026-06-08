@@ -333,6 +333,9 @@ def signed_chain_excess_connected_components(signed_chain, point_cloud: NDArray[
         raise ValueError("Function only defined for 1-dimensional chains")
     return len( signed_chain.polyhedral_paths(point_cloud) ) - 1
 
+def signed_chain_connected_components_only_signed_simplices(signed_chain, point_cloud: NDArray[np.float64]):
+    return signed_chain_connected_components( signed_chain=signed_chain.only_double_simplices(), point_cloud=point_cloud)
+
 def signed_chain_area(signed_chain, point_cloud:  NDArray[np.float64]) -> float:
     """
     Area enclosed by a chain with possible holes.
@@ -404,6 +407,10 @@ def signed_chain_excess_curvature(signed_chain, point_cloud: NDArray[np.float64]
 
     return total
 
+def signed_chain_excess_curvature_diff_to_unsigned(signed_chain, point_cloud: NDArray[np.float64]):
+    diff = signed_chain_excess_curvature(signed_chain=signed_chain,point_cloud=point_cloud) - signed_chain_excess_curvature(signed_chain=signed_chain.unsigned(),point_cloud=point_cloud)
+    return diff
+
 def signed_chain_excess_curvature_normalized(signed_chain, point_cloud: NDArray[np.float64]) -> float:
     """
     Sum of ``curvature_excess`` with normalized=True over every polyhedral path in the chain.
@@ -424,7 +431,6 @@ def signed_chain_excess_curvature_normalized(signed_chain, point_cloud: NDArray[
         Total normalized excess curvature across all paths.
     """
     return signed_chain_excess_curvature(signed_chain, point_cloud) / (2.0*math.pi)
-
 
 def signed_chain_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -475,7 +481,6 @@ def signed_chain_circularity_complement(signed_chain, point_cloud: NDArray[np.fl
         Non-Circularity measure; higher values indicate more circular shapes.
     """
     return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
-
 
 def signed_chain_non_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
     """
