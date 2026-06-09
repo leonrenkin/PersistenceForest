@@ -2,18 +2,41 @@ from loopforest import PersistenceForest
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Callable
+from dataclasses import dataclass
 
-from loopforest.cycle_rep_vectorisations import constant_one_functional, signed_chain_avg_tendril_length, signed_chain_excess_curvature, signed_chain_circularity_complement, signed_chain_excess_curvature_diff_to_unsigned, signed_chain_connected_components_only_signed_simplices
+CycleFunc = Callable[..., float]
 
-UNSIGNED_CYCLE_FUNCS = {"standard_landscapes": constant_one_functional,
-                        "unsigned_excess_curvature": signed_chain_excess_curvature,
-                        "unsigned_circularity_complement": signed_chain_circularity_complement}
+from loopforest import PersistenceForest
+from loopforest.cycle_rep_vectorisations import (
+    constant_one_functional,
+    signed_chain_avg_tendril_length,
+    signed_chain_circularity_complement,
+    signed_chain_connected_components_only_signed_simplices,
+    signed_chain_excess_curvature,
+    signed_chain_excess_curvature_diff_to_unsigned,
+)
 
-SIGNED_CYCLE_FUNCS = {"signed_excess_curvature": signed_chain_excess_curvature,
-                    "signed_circularity_complement": signed_chain_circularity_complement,
-                    "excess_curvature_signed_unsigned_diff": signed_chain_excess_curvature_diff_to_unsigned,
-                    "avg_tendril_length": signed_chain_avg_tendril_length,
-                    "tendril_count": signed_chain_connected_components_only_signed_simplices}
+@dataclass(frozen=True)
+class FunctionalConfig:
+    label: str
+    cycle_func: CycleFunc
+    signed: bool
+
+FUNCTIONAL_CONFIGS = (
+    FunctionalConfig("standard_landscapes", constant_one_functional, False),
+    FunctionalConfig("unsigned_excess_curvature", signed_chain_excess_curvature, False),
+    FunctionalConfig("unsigned_circularity_complement", signed_chain_circularity_complement, False),
+    FunctionalConfig("signed_excess_curvature", signed_chain_excess_curvature, True),
+    FunctionalConfig("signed_circularity_complement", signed_chain_circularity_complement, True),
+    FunctionalConfig(
+        "excess_curvature_signed_unsigned_diff",
+        signed_chain_excess_curvature_diff_to_unsigned,
+        True,
+    ),
+    FunctionalConfig("avg_tendril_length", signed_chain_avg_tendril_length, True),
+    FunctionalConfig("tendril_count", signed_chain_connected_components_only_signed_simplices, True),
+)
 
 
 def featurize_point_cloud(point_cloud, 
@@ -70,23 +93,23 @@ def process_cycle_func(output_dir,
 
 
 
-if __name__ == "main":
+if __name__ == "__main__":
 
     output_dir = Path("outputs/features")
     Path(output_dir).mkdir(exist_ok = True)
 
-    x_grid = np.linspace(0,0.4,20)
-    x_grid_first_layer = np.linspace(0,0.4,20)
+    landscape_feature_params = {"x_grid": np.linspace(0,0.4,20),
+                            "x_grid_first_layer": np.linspace(0,0.4,20),
+                            "max_k": 25,
+                            "min_bar_length":0.0}
 
-    label = "standard_landscapes"
-    cycle_func =  constant_one_functional
 
-    point_cloud_params = pd.read_csv("outputs/loop_tendril_params.csv")
-
-    for name, cycle_func in UNSIGNED_CYCLE_FUNCS:
-        
-        print("To Do: implement")
-
-    for name, cycle_func in SIGNED_CYCLE_FUNCS:
-        
-        print("To Do: implement")
+    for config in FUNCTIONAL_CONFIGS:
+        process_cycle_func(
+            output_dir = output_dir,
+            cycle_func = config.cycle_func, 
+            label = config.label,
+            signed = config.signed,
+            landscape_feature_params=landscape_feature_params
+        )
+    
