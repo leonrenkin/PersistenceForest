@@ -2,7 +2,7 @@ import math
 from typing import Iterable, Tuple, List, Dict, Set, Optional
 from numpy.typing import NDArray
 import numpy as np
-from PersistenceForest import SignedChain
+from .PersistenceForest import SignedChain
 
 _EPS = 1e-12
 
@@ -479,7 +479,12 @@ def signed_chain_connected_components_only_signed_simplices(signed_chain: Signed
     int
         Number of closed paths formed by doubled simplices.
     """
-    return signed_chain_connected_components( signed_chain=signed_chain.only_double_simplices(), point_cloud=point_cloud)
+    
+    purely_signed_chain = signed_chain.only_double_simplices()
+    if len(purely_signed_chain.signed_simplices)==0:
+        return 0
+    
+    return signed_chain_connected_components( signed_chain=purely_signed_chain, point_cloud=point_cloud)
 
 def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
@@ -498,6 +503,8 @@ def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDAr
         Average doubled-edge component length, divided by 2.
     """
     tendril_chain = signed_chain.only_double_simplices()
+    if len(tendril_chain.signed_simplices)==0:
+        return 0
     length = signed_chain_edge_length(signed_chain=tendril_chain, point_cloud=point_cloud)
     tendril_num = len(signed_chain_to_polyhedral_paths(signed_chain=tendril_chain, point_cloud=point_cloud))
     
