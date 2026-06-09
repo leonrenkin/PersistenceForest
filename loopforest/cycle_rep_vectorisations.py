@@ -2,6 +2,7 @@ import math
 from typing import Iterable, Tuple
 from numpy.typing import NDArray
 import numpy as np
+from PersistenceForest import SignedChain
 
 _EPS = 1e-12
 
@@ -236,7 +237,7 @@ def curvature_excess(points: Iterable[Tuple[float, float]], normalize: bool = Tr
         K /= (2.0*math.pi)
     return K 
 
-def signed_chain_edge_length(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_edge_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Sum of Euclidean lengths of all 1-simplices in a signed chain.
 
@@ -275,25 +276,13 @@ def signed_chain_edge_length(signed_chain, point_cloud: NDArray[np.float64]) -> 
 
     return total
 
-def constant_one_functional(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def constant_one_functional(signed_chain = None, point_cloud = None) -> float:
     """
-    Return the constant value 1; useful as a trivial chain functional.
-
-    Parameters
-    ----------
-    signed_chain
-        Unused; present for signature compatibility.
-    point_cloud : np.ndarray
-        Unused; present for signature compatibility.
-
-    Returns
-    -------
-    int
-        Always 1.
+    Always return 1
     """
     return 1
 
-def signed_chain_connected_components(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_connected_components(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Number of disjoint polyhedral paths in the signed chain.
 
@@ -313,7 +302,7 @@ def signed_chain_connected_components(signed_chain, point_cloud: NDArray[np.floa
         raise ValueError("Function only defined for 1-dimensional chains")
     return len( signed_chain.polyhedral_paths(point_cloud) )
 
-def signed_chain_excess_connected_components(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_excess_connected_components(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Number of components minus one; zero when the chain is connected.
 
@@ -333,10 +322,13 @@ def signed_chain_excess_connected_components(signed_chain, point_cloud: NDArray[
         raise ValueError("Function only defined for 1-dimensional chains")
     return len( signed_chain.polyhedral_paths(point_cloud) ) - 1
 
-def signed_chain_connected_components_only_signed_simplices(signed_chain, point_cloud: NDArray[np.float64]):
+def signed_chain_connected_components_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]):
     return signed_chain_connected_components( signed_chain=signed_chain.only_double_simplices(), point_cloud=point_cloud)
 
-def signed_chain_area(signed_chain, point_cloud:  NDArray[np.float64]) -> float:
+def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]):
+    return
+
+def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float64]) -> float:
     """
     Area enclosed by a chain with possible holes.
 
@@ -376,7 +368,7 @@ def signed_chain_area(signed_chain, point_cloud:  NDArray[np.float64]) -> float:
             total_area -= polygon_area(point_cloud[path])
     return total_area
 
-def signed_chain_excess_curvature(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Sum of ``curvature_excess`` over every polyhedral path in the chain.
 
@@ -407,11 +399,11 @@ def signed_chain_excess_curvature(signed_chain, point_cloud: NDArray[np.float64]
 
     return total
 
-def signed_chain_excess_curvature_diff_to_unsigned(signed_chain, point_cloud: NDArray[np.float64]):
+def signed_chain_excess_curvature_diff_to_unsigned(signed_chain: SignedChain, point_cloud: NDArray[np.float64]):
     diff = signed_chain_excess_curvature(signed_chain=signed_chain,point_cloud=point_cloud) - signed_chain_excess_curvature(signed_chain=signed_chain.unsigned(),point_cloud=point_cloud)
     return diff
 
-def signed_chain_excess_curvature_normalized(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_excess_curvature_normalized(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Sum of ``curvature_excess`` with normalized=True over every polyhedral path in the chain.
 
@@ -432,7 +424,7 @@ def signed_chain_excess_curvature_normalized(signed_chain, point_cloud: NDArray[
     """
     return signed_chain_excess_curvature(signed_chain, point_cloud) / (2.0*math.pi)
 
-def signed_chain_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Circularity functional: 4pi * area / perimeter^2  for the chain's paths.
     This is 1 for a perfect circle and between 0 and 1 for less circular shapes.
@@ -460,7 +452,7 @@ def signed_chain_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> 
 
     return circularity
 
-def signed_chain_circularity_complement(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_circularity_complement(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Return 1-circularity
     Circularity functional: 4pi * area / perimeter^2  for the chain's paths.
@@ -482,7 +474,7 @@ def signed_chain_circularity_complement(signed_chain, point_cloud: NDArray[np.fl
     """
     return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
 
-def signed_chain_non_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Circularity functional: perimeter^2 / (4pi*area) - 1 for the chain's paths.
     This is zero for a perfect circle and positive for less circular shapes.
@@ -509,7 +501,7 @@ def signed_chain_non_circularity(signed_chain, point_cloud: NDArray[np.float64])
 
     return non_circularity
 
-def signed_chain_volume(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_volume(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
     Returns volume of a signed chain. 
     For a 2d point cloud, it corresponds to length (and not contained area), 
@@ -538,4 +530,3 @@ def signed_chain_volume(signed_chain, point_cloud: NDArray[np.float64]) -> float
     dets = np.linalg.det(mats)
 
     return float(np.abs(dets).sum())
-
