@@ -8,8 +8,11 @@ def generate_params(
     seed: int = 0,
     tendril_range=(0, 20),  # inclusive lower, inclusive upper
     tendril_length_range=(0.1, 0.4),
-    tendril_modes=("single", "branching"),
-    root_modes=("uniform", "polarized"),
+    mode_scenarios=(
+        ("single", "uniform", 0.5),
+        ("branching", "uniform", 0.25),
+        ("single", "polarized", 0.25),
+    ),
     branching_probability_range=(0.6, 0.8),
 ):
     """Generate valid parameter rows for parametric loop-tendril point clouds."""
@@ -29,10 +32,26 @@ def generate_params(
     branch_low, branch_high = map(float, branching_probability_range)
     if branch_low < 0.0 or branch_high > 1.0 or branch_low > branch_high:
         raise ValueError("branching_probability_range must lie within [0, 1]")
-    if len(tendril_modes) == 0:
-        raise ValueError("tendril_modes must contain at least one mode")
-    if len(root_modes) == 0:
-        raise ValueError("root_modes must contain at least one mode")
+    if len(mode_scenarios) == 0:
+        raise ValueError("mode_scenarios must contain at least one scenario")
+
+    scenario_modes = []
+    scenario_probabilities = []
+    for scenario in mode_scenarios:
+        try:
+            tendril_mode, root_mode, probability = scenario
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "mode_scenarios entries must be (tendril_mode, root_mode, probability)"
+            ) from exc
+        scenario_modes.append((tendril_mode, root_mode))
+        scenario_probabilities.append(float(probability))
+
+    probabilities = np.asarray(scenario_probabilities, dtype=float)
+    if np.any(probabilities < 0.0):
+        raise ValueError("mode_scenarios probabilities must be non-negative")
+    if not np.isclose(probabilities.sum(), 1.0):
+        raise ValueError("mode_scenarios probabilities must sum to 1.0")
 
     rng = np.random.default_rng(seed)
     n_tendrils = rng.integers(tendril_low, tendril_high + 1, size=n)
@@ -41,7 +60,9 @@ def generate_params(
     positive_length = max(length_low, np.nextafter(0.0, 1.0))
     tendril_lengths = np.where(n_tendrils == 0, 0.0, np.maximum(tendril_lengths, positive_length))
 
-    sampled_modes = rng.choice(tendril_modes, size=n)
+    sampled_scenarios = rng.choice(len(scenario_modes), size=n, p=probabilities)
+    sampled_modes = np.asarray([scenario_modes[i][0] for i in sampled_scenarios])
+    sampled_root_modes = np.asarray([scenario_modes[i][1] for i in sampled_scenarios])
     branching_probabilities = rng.uniform(branch_low, branch_high, size=n)
     branching_probabilities = np.where(
         (n_tendrils > 0) & (sampled_modes == "branching"),
@@ -54,7 +75,7 @@ def generate_params(
         "n_tendrils": n_tendrils,
         "tendril_length": tendril_lengths,
         "tendril_mode": sampled_modes,
-        "root_mode": rng.choice(root_modes, size=n),
+        "root_mode": sampled_root_modes,
         "branching_probability": branching_probabilities,
     })
     return params
@@ -74,8 +95,11 @@ if __name__ == "__main__":
         "parameter_generation": {
             "tendril_range": [0, 20],  # inclusive lower, inclusive upper
             "tendril_length_range": [0.1, 0.4],
-            "tendril_modes": ["single", "branching"],
-            "root_modes": ["uniform", "polarized"],
+            "mode_scenarios": [
+                ["single", "uniform", 0.5],
+                ["branching", "uniform", 0.25],
+                ["single", "polarized", 0.25],
+            ],
             "branching_probability_range": [0.5, 0.8],
         },
         "graph_generation": {
@@ -89,7 +113,7 @@ if __name__ == "__main__":
             "post_sample_noise_std": 0.0008,
         },
         "final_sampling": {
-            "target_spacing": 0.15,
+            "target_spacing": 0.015,
             "pre_sample_noise_std": 0.0,
             "post_sample_noise_std": 0.0,
         },
@@ -167,5 +191,3 @@ if __name__ == "__main__":
         json.dumps(metadata, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-
-
