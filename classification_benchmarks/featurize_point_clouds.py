@@ -88,14 +88,21 @@ def process_cycle_func(
     label,
     signed,
     landscape_feature_params,
+    progress_every=None,
 ):
     point_cloud_params = pd.read_csv(point_cloud_params_path)
     point_cloud_metadata = json.loads(
         Path(point_cloud_metadata_path).read_text(encoding="utf-8")
     )
+    if progress_every is not None and progress_every <= 0:
+        raise ValueError("progress_every must be positive or None")
+
     rows = []
 
-    for point_cloud_param_row in point_cloud_params.to_dict(orient="records"):
+    for i, point_cloud_param_row in enumerate(
+        point_cloud_params.to_dict(orient="records"),
+        start=1,
+    ):
         point_cloud = np.load(
             Path(__file__).resolve().parent / point_cloud_param_row["save_path"]
         )
@@ -109,6 +116,8 @@ def process_cycle_func(
             **point_cloud_param_row,
             **{f"f{i}": value for i, value in enumerate(feature)},
         })
+        if progress_every is not None and i % progress_every == 0:
+            print(f"{label}: processed {i}/{len(point_cloud_params)} point clouds")
 
     feature_df = pd.DataFrame(rows)
     output_dir = Path(output_dir)
@@ -117,6 +126,8 @@ def process_cycle_func(
     metadata_path = output_dir / f"{label}_metadata.json"
 
     feature_df.to_csv(output_csv_path, index=False)
+    if progress_every is not None:
+        print(f"{label}: wrote {output_csv_path}")
 
     landscape_params_metadata = {
         key: value.tolist() if isinstance(value, np.ndarray) else value
@@ -165,4 +176,5 @@ if __name__ == "__main__":
             label=config.label,
             signed=config.signed,
             landscape_feature_params=landscape_feature_params,
+            progress_every=50,
         )
