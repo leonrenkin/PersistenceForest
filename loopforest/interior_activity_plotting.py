@@ -349,7 +349,6 @@ def plot_interior_simplex_activity_gradient(
         mask_field = np.clip(mask_field, 0.0, 1.0)
 
         weight_sum = np.sum(weights, axis=0)
-        max_weight = np.max(weights, axis=0)
         rgb_colors = np.array([mcolors.to_rgb(color_map[bar]) for bar in bar_order], dtype=float)
         weighted_rgb = np.einsum("bhw,bc->hwc", weights, rgb_colors)
         blended_rgb = np.ones((ny, nx, 3), dtype=float)
@@ -387,7 +386,8 @@ def plot_interior_simplex_activity_gradient(
         else:
             conflict = np.zeros((ny, nx), dtype=float)
 
-        strength = np.clip(max_weight * mask_field * (1.0 - conflict), 0.0, 1.0)
+        strength_base = np.clip(weight_sum, 0.0, 1.0)
+        strength = np.clip(strength_base * mask_field * (1.0 - conflict), 0.0, 1.0)
         background_rgb = np.array(mcolors.to_rgb(plot_style["background_color"]), dtype=float)
         image = background_rgb + strength[:, :, None] * (blended_rgb - background_rgb)
         image = np.clip(image, 0.0, 1.0)
