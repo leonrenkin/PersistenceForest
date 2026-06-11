@@ -99,6 +99,31 @@ def are_dict_keys_sorted(d):
         prev = k
     return True
 
+def union_optional_sets(set1: Optional[Set], set2: Optional[Set]) -> Optional[Set]:
+    """
+    Return the union of two sets, where either set may be None.
+
+    Parameters
+    ----------
+    set1 : set or None
+        First set to union.
+    set2 : set or None
+        Second set to union.
+
+    Returns
+    -------
+    set or None
+        Union of the two sets, or None if both inputs are None.
+    """
+    if set1 is None and set2 is None:
+        return None
+    elif set1 is None:
+        return set2
+    elif set2 is None:
+        return set1
+    else:
+        return set1 | set2
+
 def simplex_orientation(simplex, point_cloud):
     """
     Compute the orientation of a simplex with respect to the ambient point cloud.
@@ -119,7 +144,7 @@ def simplex_orientation(simplex, point_cloud):
     vectors = [point_cloud[i]-point_cloud[simplex[0]] for i in simplex[1:]]
     return sign_of_determinant(vectors=vectors)
 
-def signed_boundary(simplex: List[int], orientation: int): 
+def signed_boundary(simplex, orientation: int): 
     """
     Compute the oriented boundary of a simplex.
 
@@ -137,6 +162,42 @@ def signed_boundary(simplex: List[int], orientation: int):
     """
     return {(tuple(simplex[:i] + simplex[i+1:]), orientation* (-1)**i) for i in range(len(simplex))}
 
+def merge_at_simplex(cycle1: "SignedChain", cycle2: "SignedChain", simplex: list[int]) -> "SignedChain":
+    """
+    Union two chains and remove the specified simplex if it
+    appears with opposite orientation in the two chains.
+
+    Parameters
+    ----------
+    cycle1 : SignedChain
+        Chain to merge.
+    cycle2 : SignedChain
+        Chain to merge.
+    simplex : list[int]
+        Simplex that is being collapsed when the chains merge.
+
+    Returns
+    -------
+    SignedChain
+        New chain representing the merged cycles.
+    """
+    union = cycle1.signed_simplices | cycle2.signed_simplices
+    return SignedChain(signed_simplices= union.difference({(tuple(simplex),1),(tuple(simplex),-1)}) )
+
+def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tuple] | None, codim1_simplex_diff: Set[tuple] | None):
+    
+    if interior_diff is not None:
+        for oriented_simplex in interior_diff:
+            #print(f"Adding {oriented_simplex} to {signed_simplices}")
+            signed_simplices.update(signed_boundary(simplex =oriented_simplex[0], orientation=oriented_simplex[1]))
+
+    if codim1_simplex_diff is not None:
+        for oriented_simplex in codim1_simplex_diff:
+            #print(f"removing {oriented_simplex} from {signed_simplices}")
+            signed_simplices.remove(oriented_simplex)
+    
+    return signed_simplices
+
 # ------------ Classes ---------------
 
 @dataclass(slots=True)
@@ -144,26 +205,8 @@ class SignedChain:
     signed_simplices: Set[tuple]        # oriented d-simplices, stored as (simplex, orientation)
     active_start: float = float("-inf")
     active_end: float   = float("-inf")
-
-    def merge_at_simplex(self, cycle: "SignedChain", simplex: list[int]) -> "SignedChain":
-        """
-        Union this chain with another and remove the specified simplex if it
-        appears with opposite orientation in the two chains.
-
-        Parameters
-        ----------
-        cycle : SignedChain
-            Chain to merge with.
-        simplex : list[int]
-            Simplex that is being collapsed when the chains merge.
-
-        Returns
-        -------
-        SignedChain
-            New chain representing the merged cycles.
-        """
-        union = self.signed_simplices | cycle.signed_simplices
-        return SignedChain(signed_simplices= union.difference({(tuple(simplex),1),(tuple(simplex),-1)}) )
+    interior_available: bool = False
+    interior: Set[tuple] | None = None        # oriented (d+1)-simplices, stored as (simplex, orientation)
     
     def cancel_simplex(self, simplex: list[int]) -> "SignedChain":
         """
@@ -410,11 +453,18 @@ class PFNode:
     Each node has a loop representative."""
     id: int #does not need to know its own node
     filt_val: float
-    cycle: SignedChain                                                  #Loops are saved as list of indices of simplex
+    cycle: SignedChain 
     children: set[int]                                    #ids of children
     parent: Optional[int] = None
     #is_root: bool = True  #True if it is the root of a tree, also used for bookkeeping of active loops
     _barcode_covered: bool = False
+
+    _simplex_diff_available: bool = False       #We could remove this and always check for tree to save storage
+    _interior_diff: set[tuple] | None = None     # oriented (d+1)-simplices, stored as (simplex, orientation)
+    _codim1_simplex_diff: set[tuple] | None = None  # oriented d-simplices, stored as (simplex, orientation), correspond to oriented simplices which need to be removed
+    #cycle at node: \Cup_{child \in node.children} child.cycle.signed_simplices \cup \Cup_{(simplex, orientation) \in node._interior_diff} signed_boundary(simplex, orientation) \setminus node._codim1_simplex_diff
+    _barcode_interior_diff: set[tuple] | None = None  
+    _barcode_codim1_simplex_diff: set[tuple] | None = None  
 
     def __repr__(self) -> str:
         return f"Node(id={self.id}, f={self.filt_val})"
@@ -426,7 +476,8 @@ class PFBar:
     The cycle reps are a strictly decreasing chain w.r.t. inclusion.
     """
 
-    def __init__(self, birth: float, 
+    def __init__(self, 
+                 birth: float, 
                  death: float, 
                  _node_progression: tuple[int,...], 
                  cycle_reps: list[SignedChain], 
@@ -457,6 +508,7 @@ class PFBar:
         self.cycle_reps = cycle_reps
         self.is_max_tree_bar = is_max_tree_bar
         self.root_id = root_id
+
 
     def cycle_at_filtration_value(self, filt_val)->SignedChain:
         """
@@ -516,10 +568,13 @@ class PersistenceForest:
 
     def __init__(self, 
                  point_cloud,
-                 compute = True,
                  reduce: bool = True,
                  compute_barcode: bool = True,
-                 print_info: bool = False) -> None:
+                 print_info: bool = False,
+                 keep_simplex_diff: bool = False,
+                 compute_interior: bool = False,
+                 low_memory_mode: bool =False
+                 ):
         """
         Build a PersistenceForest from a point cloud using the alpha complex.
 
@@ -576,11 +631,35 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
 
-        #compute forest
-        if compute:
-            self._compute_forest(reduce=reduce, compute_barcode=compute_barcode, print_info = print_info)
-            self.reduced = reduce
+        if low_memory_mode and not keep_simplex_diff:
+            raise ValueError("low_memory_mode=True requires keep_simplex_diff=True")
+        self.keep_simplex_diff = keep_simplex_diff
+        self.low_memory_mode = low_memory_mode
+
+        self._compute_forest(print_info = print_info)
+
+        self.reduced = reduce
         
+        #compute where each loop is active
+        self._compute_loop_activity()
+
+        if reduce:
+            self._reduce_forest(print_info = print_info)
+
+        if compute_barcode:
+            if self.keep_simplex_diff:
+                self.compute_barcode_diff(print_info=print_info)
+            else:
+                self.compute_barcode(print_info = print_info)
+
+        if compute_interior and not keep_simplex_diff:
+            raise ValueError("compute_interior=True requires keep_simplex_diff=True")
+
+        if compute_interior:
+            self._compute_interior_of_cycle_reps(print_info = print_info)
+
+
+        return
 
     # ---------- builders ---------
 
@@ -606,10 +685,19 @@ class PersistenceForest:
         """
 
         nid = next(self._node_id)
-
+        
         new_cycle = SignedChain(signed_simplices=signed_boundary(simplex=simplex,orientation=orientation))
 
-        new_node = PFNode(id=nid,filt_val=filt_val, children=set(), cycle=new_cycle)
+        if self.keep_simplex_diff:
+            new_node = PFNode(id=nid,
+                              filt_val=filt_val, 
+                              children=set(), 
+                              cycle=new_cycle, 
+                              _simplex_diff_available = True,
+                              _interior_diff = {(key(simplex=simplex), orientation)},
+                              _codim1_simplex_diff = None)
+        else: 
+            new_node = PFNode(id=nid,filt_val=filt_val, children=set(), cycle=new_cycle, _simplex_diff_available = False)
 
         self.nodes[nid]=new_node
         self._active_node_ids.add(nid)  #roots are active nodes in algorithm, at termination the active nodes are precicely the roots of the forest 
@@ -635,7 +723,16 @@ class PersistenceForest:
         self._active_node_ids.remove(node.id)
         node.parent = nid #new root node is parent of input node
 
-        root_node = PFNode(id=nid, filt_val=filt_val, cycle=node.cycle, children={node.id})
+        if self.keep_simplex_diff:
+            root_node = PFNode(id=nid, 
+                               filt_val=filt_val, 
+                               cycle=node.cycle, 
+                               children={node.id},
+                               _simplex_diff_available = True,
+                               _interior_diff = None,
+                               _codim1_simplex_diff = None)
+        else:
+            root_node = PFNode(id=nid, filt_val=filt_val, cycle=node.cycle, children={node.id}, _simplex_diff_available = False)
 
 
         self.nodes[nid]=root_node
@@ -645,7 +742,7 @@ class PersistenceForest:
 
         return
 
-    def merge_nodes(self, node1: PFNode, node2: PFNode, parent_cycle: SignedChain, filt_val: float):
+    def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val: float):
         """ 
         Creates parent node of node1 and node2 with loop representative parent loop
         Corresponds to a loop being split into two loops in homology and a new bar appearing in barcode
@@ -664,7 +761,18 @@ class PersistenceForest:
         node1.parent = nid
         node2.parent = nid
 
-        parent_node = PFNode(id=nid, filt_val=filt_val, children={node1.id,node2.id}, cycle=parent_cycle)
+        parent_cycle = merge_at_simplex(cycle1 = node1.cycle, cycle2=node2.cycle,  simplex=simplex) 
+
+        if self.keep_simplex_diff:
+            parent_node = PFNode(id=nid, 
+                                 filt_val=filt_val, 
+                                 children={node1.id,node2.id}, 
+                                 cycle=parent_cycle,
+                                 _simplex_diff_available = True,
+                                 _interior_diff = None,
+                                 _codim1_simplex_diff = {(key(simplex),1),(key(simplex),-1)})
+        else:
+            parent_node = PFNode(id=nid, filt_val=filt_val, children={node1.id,node2.id}, cycle=parent_cycle, _simplex_diff_available = False)
         self.nodes[nid]=parent_node
         
         self._active_node_ids.add(nid)
@@ -675,7 +783,7 @@ class PersistenceForest:
 
         return
     
-    def update_node(self, node: PFNode, updated_cycle: SignedChain, filt_val:float):
+    def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
         """
         Update a node when its representative cycle changes.
 
@@ -689,10 +797,22 @@ class PersistenceForest:
             Filtration value of the update event.
         """
 
+        updated_cycle = node.cycle.cancel_simplex(simplex=simplex)
+
         nid = next(self._node_id)
         node.parent=nid
 
-        update_node = PFNode(id=nid, filt_val=filt_val, children={node.id},cycle = updated_cycle)
+        if self.keep_simplex_diff:
+            update_node = PFNode(id=nid, 
+                                 filt_val=filt_val, 
+                                 children={node.id},
+                                 cycle = updated_cycle,
+                                 _simplex_diff_available = True,
+                                 _interior_diff = None,
+                                 _codim1_simplex_diff = {(key(simplex),1),(key(simplex),-1)})
+        else:
+            update_node = PFNode(id=nid, filt_val=filt_val, children={node.id},cycle = updated_cycle, _simplex_diff_available = False)
+
         self.nodes[nid]=update_node
 
         self._active_node_ids.add(nid)
@@ -705,7 +825,7 @@ class PersistenceForest:
     
     # ----- compute the forest ----------
 
-    def _compute_forest(self, reduce = True, compute_barcode = True, print_info: bool = False):
+    def _compute_forest(self, print_info: bool = False):
         """ 
         Compute the persistence forest from the alpha-complex filtration.
 
@@ -783,9 +903,8 @@ class PersistenceForest:
 
                     continue
 
-                elif len(L) == 2 and L[0]!=L[1]:
-                    parent_cycle = L[0].cycle.merge_at_simplex(cycle=L[1].cycle,  simplex=simplex) 
-                    self.merge_nodes( node1=L[0], node2=L[1], parent_cycle=parent_cycle, filt_val=filt_val)
+                elif len(L) == 2 and L[0]!=L[1]: 
+                    self.merge_nodes( node1=L[0], node2=L[1], simplex =simplex, filt_val=filt_val)
                     """if not loop_in_filtration_check(parent_loop.vertex_list, simplex_tree=self.simplex_tree, filt_value=filt_val):
                             print('edge', simplex)
                             print('edge dict entry')
@@ -797,16 +916,13 @@ class PersistenceForest:
 
                 elif len(L) == 2 and L[0]==L[1]:
                     #Same simplex is contained in a cycle in both orientations -> we remove it from the the cycle
-                    updated_cycle = L[0].cycle.cancel_simplex(simplex=simplex)
+                    self.update_node(node=L[0], simplex=simplex, filt_val=filt_val)
                     """if not loop_in_filtration_check(vertex_loop, simplex_tree=self.simplex_tree, filt_value=filt_val):
                                 print('edge', simplex)
                                 print(f'starting loop', L[0].loop)
                                 print(f'outer loop', vertex_loop)
                                 raise ValueError("Loop not in simplex, Tiebreak Case")"""
                     
-
-                    self.update_node(node=L[0], updated_cycle=updated_cycle, filt_val=filt_val)
-
                 else:
                     print(L)
                     print(simplex)
@@ -816,15 +932,6 @@ class PersistenceForest:
         if print_info:
             print(f"Forest succesfully computed in {loop_forest_time} sec")
 
-        #compute where each loop is active
-        self._compute_loop_activity()
-
-        if reduce:
-            self._reduce_forest(print_info = print_info)
-
-        if compute_barcode:
-            self.compute_barcode(print_info = print_info)
-        
         return
 
 
@@ -939,6 +1046,12 @@ class PersistenceForest:
         #remove child node from forest
         del self.nodes[child.id]
 
+        #update node simplex diffs
+        if self.keep_simplex_diff:
+
+            parent._interior_diff = union_optional_sets(parent._interior_diff, child._interior_diff)
+            parent._codim1_simplex_diff = union_optional_sets(parent._codim1_simplex_diff, child._codim1_simplex_diff)
+
         #if parent is now isolated point in forest, delete it from forest completely
         if len(parent.children)==0 and parent.parent == None:
             del self.nodes[parent.id]
@@ -1001,6 +1114,15 @@ class PersistenceForest:
 
     # ------ Add active period of each loops ----------
 
+    def _node_activity(self, node):
+        if node.parent == None:
+            return node.filt_val, node.filt_val
+
+        parent = self.nodes[node.parent]
+        active_start = parent.filt_val
+        active_end = node.filt_val
+        return active_start, active_end
+
     def _compute_loop_activity(self):
         """
         Annotate each cycle with the interval where it is the optimal
@@ -1019,7 +1141,6 @@ class PersistenceForest:
             parent = self.nodes[node.parent]
             node.cycle.active_end = node.filt_val
             node.cycle.active_start = parent.filt_val
-
 
         return
 
@@ -1100,6 +1221,180 @@ class PersistenceForest:
     
         return
          
+    def compute_barcode_diff(self, print_info: bool = False):
+        """
+        Compute the H1 barcode from the forest structure.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+
+        Notes
+        -----
+        Iterates over leaves, walks to the root (or first covered node), and
+        records the sequence of representatives. Bars are stored in
+        ``self.barcode``.
+        """
+        
+        if print_info:
+            print("Computing Barcode")
+        barcode_start = time.perf_counter()
+
+        #dict should be ordered with filtration values decreasing since nodes are added in that order
+        if not are_dict_keys_sorted(self.nodes):
+            raise ValueError("Node dict keys are not sorted. This should not happen. Easy fix: sort keys in compute_barcode function (currently not implemented)")
+    
+
+        for id, node in reversed(self.nodes.items()):
+            #every barcode starts at leaf
+            if len(node.children)>0:
+                continue
+
+            death = node.filt_val
+            node_id_progession = [id]
+            cycle_progression = [node.cycle]
+            node._barcode_covered=True
+            is_max_tree_bar = True
+            root_id = self.get_root(node).id
+
+            barcode_interior_diff = node._interior_diff
+            barcode_codim1_simplex_diff = node._codim1_simplex_diff
+
+            if node.parent == None:
+                raise ValueError("Leaf has no Parent, this should not happen")
+            else:
+                parent = self.nodes[node.parent]
+
+            #walk up forest until a root or a merge node with _barcode_covered = False is discovered
+            while parent.parent is not None:
+                #check if parent node has already been covered by leaf with larger filtration value
+                if len(parent.children)>1 and parent._barcode_covered == False:
+                    parent._barcode_covered = True
+                    is_max_tree_bar = False
+
+                    #Write down total bar diff in merge node
+                    if self.keep_simplex_diff:
+                        parent._barcode_interior_diff = barcode_interior_diff
+                        parent._barcode_codim1_simplex_diff = barcode_codim1_simplex_diff
+        
+                    break
+
+                if self.keep_simplex_diff:
+                    barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._interior_diff)
+                    barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._codim1_simplex_diff)
+
+                    if parent._barcode_covered:
+                        barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._barcode_interior_diff)
+                        barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._barcode_codim1_simplex_diff)
+
+                node_id_progession.append(parent.id)
+                cycle_progression.append(parent.cycle)
+                parent._barcode_covered = True
+
+                #move to parent of parent
+                parent = self.nodes[parent.parent]
+
+            birth = parent.filt_val
+
+
+            #reverse lists to get progression which is ascending with respect to filtration value
+            bar = PFBar(birth=birth,
+                      death=death, 
+                      _node_progression = tuple(reversed(node_id_progession)), 
+                      cycle_reps=list(reversed(cycle_progression)), 
+                      is_max_tree_bar=is_max_tree_bar,
+                      root_id=root_id)
+            self.barcode.add(bar)
+ 
+
+        barcode_time = time.perf_counter() - barcode_start
+        if print_info:
+            print(f"Barcode computation completed in {barcode_time} sec")
+    
+        return
+
+    def _cycle_reps_from_node_diff(self, bar: PFBar) -> list[SignedChain]:
+
+
+        interior = set()
+        simplices = set()
+        cycle_reps = []
+
+        for nid in reversed(bar._node_progression):
+            node = self.nodes[nid]
+
+            active_start, active_end = self._node_activity(node)
+
+            if not node._simplex_diff_available:
+                raise ValueError("set PersistenceForest(..., keep_simplex_diff=True)")
+            
+            simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._barcode_interior_diff, codim1_simplex_diff=node._barcode_codim1_simplex_diff)
+            simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._interior_diff, codim1_simplex_diff=node._codim1_simplex_diff)
+
+            if node._interior_diff is not None:
+                interior.update(node._interior_diff)
+            if node._barcode_interior_diff is not None:
+                interior.update(node._barcode_interior_diff)
+
+            signed_chain = SignedChain(
+                signed_simplices=simplices.copy(),
+                active_start=active_start,
+                active_end=active_end,
+                interior_available=True,
+                interior=interior.copy()
+            )
+            cycle_reps.append(signed_chain)
+
+
+        return list(reversed(cycle_reps))
+
+    def _compute_interior_of_cycle_reps(self,print_info: bool =False):
+        if print_info:
+            print("Computing interior of cycle reps")
+        interior_start = time.perf_counter()
+
+        for bar in self.barcode:
+            bar.cycle_reps = self._cycle_reps_from_node_diff(bar)
+        
+        interior_end = time.perf_counter()-interior_start
+        if print_info:
+            print(f"interior of cycle reps computed in {interior_end}")
+
+        return
+
+    def interior_simplex_activity(self) -> dict[tuple[int, ...], list[tuple[PFBar, float, float]]]:
+        """
+        Return active interior intervals for full-dimensional simplices.
+
+        The return value maps each unsigned full-dimensional simplex to a list
+        of ``(bar, active_start, active_end)`` tuples. The interval is the
+        half-open filtration range where the simplex is in the interior of the
+        active cycle representative for that bar.
+        """
+        activity = defaultdict(list)
+
+        for bar in self.barcode:
+            first_rep = bar.cycle_reps[0]
+            first_simplex_keys = {key(simplex) for simplex, _orientation in first_rep.interior}
+            last_active_end_by_simplex = {}
+
+            for cycle_rep in bar.cycle_reps:
+                cycle_rep_simplex_keys = {key(simplex) for simplex, _orientation in cycle_rep.interior}
+
+                for simplex_key in first_simplex_keys:
+                    if simplex_key in cycle_rep_simplex_keys:
+                        last_active_end_by_simplex[simplex_key] = cycle_rep.active_end
+
+            for simplex_key in first_simplex_keys:
+                activity[simplex_key].append(
+                    (bar, first_rep.active_start, last_active_end_by_simplex[simplex_key])
+                )
+
+        return dict(activity)
+
+    # ----- Useful barcode functions --------
+
     def max_bar(self)-> PFBar:
         """Return the bar with the longest lifespan."""
         return max(self.barcode, key=lambda bar: bar.lifespan())
