@@ -188,12 +188,10 @@ def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tupl
     
     if interior_diff is not None:
         for oriented_simplex in interior_diff:
-            #print(f"Adding {oriented_simplex} to {signed_simplices}")
             signed_simplices.update(signed_boundary(simplex =oriented_simplex[0], orientation=oriented_simplex[1]))
 
     if codim1_simplex_diff is not None:
         for oriented_simplex in codim1_simplex_diff:
-            #print(f"removing {oriented_simplex} from {signed_simplices}")
             signed_simplices.remove(oriented_simplex)
     
     return signed_simplices
@@ -457,7 +455,7 @@ class PFNode:
     children: set[int]                                    #ids of children
     parent: Optional[int] = None
     #is_root: bool = True  #True if it is the root of a tree, also used for bookkeeping of active loops
-    _barcode_covered: bool = False
+    _barcode_covered: int = 0
 
     _simplex_diff_available: bool = False       #We could remove this and always check for tree to save storage
     _interior_diff: set[tuple] | None = None     # oriented (d+1)-simplices, stored as (simplex, orientation)
@@ -573,7 +571,8 @@ class PersistenceForest:
                  print_info: bool = False,
                  keep_simplex_diff: bool = False,
                  compute_interior: bool = False,
-                 low_memory_mode: bool =False
+                 low_memory_mode: bool =False,
+                 filtration_tol: float = 1e-12,
                  ):
         """
         Build a PersistenceForest from a point cloud using the alpha complex.
@@ -590,8 +589,14 @@ class PersistenceForest:
             If True, compute and store the H1 barcode after building the forest.
         print_info : bool
             If True, print timing information during construction.
+        filtration_tol : float
+            Absolute tolerance used when reducing parent-child pairs at the
+            same filtration value.
         """
         self.point_cloud = np.array(point_cloud) #point cloud is list of n-dim arrays
+        self.filtration_tol = float(filtration_tol)
+        if self.filtration_tol < 0 or not math.isfinite(self.filtration_tol):
+            raise ValueError("filtration_tol must be a finite non-negative number")
 
         #check if point cloud has correct shape
         self.dim = self.point_cloud.shape[1]
@@ -1061,9 +1066,11 @@ class PersistenceForest:
 
     def _reduce_forest(self, print_info: bool = False):
         """
-        Reduce the forest by collapsing every parent–child pair with equal filtration value.
+        Reduce the forest by collapsing every parent-child pair whose
+        filtration values differ by at most ``self.filtration_tol``.
 
-        Collapse rule for an edge (parent p, child c) with p.filt_val == c.filt_val:
+        Collapse rule for an edge (parent p, child c) with
+        p.filt_val <= c.filt_val <= p.filt_val + self.filtration_tol:
         - Keep the *parent* node p (its loop stays as-is).
         - Remove the child node c from the forest.
         - The parent of the resulting (collapsed) node remains p.parent (i.e., the
@@ -1094,7 +1101,14 @@ class PersistenceForest:
 
             for cid in p.children.copy():
                 child = self.nodes[cid]
-                if child.filt_val == p.filt_val:
+                if child.filt_val < p.filt_val:
+                    raise ValueError(
+                        f"Invalid parent-child filtration order: "
+                        f"parent {p.id} has filt_val={p.filt_val}, "
+                        f"child {child.id} has filt_val={child.filt_val}"
+                    )
+
+                if child.filt_val <= p.filt_val + self.filtration_tol:
                     self._collapse_parent_child(parent=p, child=child)
                     collapses += 1
 
@@ -1179,7 +1193,7 @@ class PersistenceForest:
             death = node.filt_val
             node_id_progession = [id]
             cycle_progression = [node.cycle]
-            node._barcode_covered=True
+            node._barcode_covered += 1
             is_max_tree_bar = True
             root_id = self.get_root(node).id
 
@@ -1191,13 +1205,13 @@ class PersistenceForest:
             #walk up forest until a root or an already _barcode_covered node is discovered
             while parent.parent is not None:
                 #check if parent node has already been covered by leaf with larger filtration value
-                if parent._barcode_covered == True:
+                if parent._barcode_covered != 0:
                     is_max_tree_bar = False
                     break
 
                 node_id_progession.append(parent.id)
                 cycle_progression.append(parent.cycle)
-                parent._barcode_covered = True
+                parent._barcode_covered += 1
 
                 #move to parent of parent
                 parent = self.nodes[parent.parent]
@@ -1254,7 +1268,7 @@ class PersistenceForest:
             death = node.filt_val
             node_id_progession = [id]
             cycle_progression = [node.cycle]
-            node._barcode_covered=True
+            node._barcode_covered += 1
             is_max_tree_bar = True
             root_id = self.get_root(node).id
 
@@ -1266,17 +1280,17 @@ class PersistenceForest:
             else:
                 parent = self.nodes[node.parent]
 
-            #walk up forest until a root or a merge node with _barcode_covered = False is discovered
+            #walk up forest until a root or a merge node with node._barcode_covered < number of children
             while parent.parent is not None:
-                #check if parent node has already been covered by leaf with larger filtration value
-                if len(parent.children)>1 and parent._barcode_covered == False:
-                    parent._barcode_covered = True
+                #check if parent node still has undiscovered leaves
+                if parent._barcode_covered < len(parent.children) - 1:
+                    parent._barcode_covered += 1
                     is_max_tree_bar = False
 
                     #Write down total bar diff in merge node
                     if self.keep_simplex_diff:
-                        parent._barcode_interior_diff = barcode_interior_diff
-                        parent._barcode_codim1_simplex_diff = barcode_codim1_simplex_diff
+                        parent._barcode_interior_diff = union_optional_sets(parent._barcode_interior_diff,barcode_interior_diff)
+                        parent._barcode_codim1_simplex_diff =  union_optional_sets(parent._barcode_codim1_simplex_diff, barcode_codim1_simplex_diff)
         
                     break
 
@@ -1284,13 +1298,13 @@ class PersistenceForest:
                     barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._interior_diff)
                     barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._codim1_simplex_diff)
 
-                    if parent._barcode_covered:
+                    if parent._barcode_covered != 0:
                         barcode_interior_diff = union_optional_sets(barcode_interior_diff, parent._barcode_interior_diff)
                         barcode_codim1_simplex_diff = union_optional_sets(barcode_codim1_simplex_diff, parent._barcode_codim1_simplex_diff)
 
                 node_id_progession.append(parent.id)
                 cycle_progression.append(parent.cycle)
-                parent._barcode_covered = True
+                parent._barcode_covered += 1
 
                 #move to parent of parent
                 parent = self.nodes[parent.parent]
@@ -1328,7 +1342,6 @@ class PersistenceForest:
 
             if not node._simplex_diff_available:
                 raise ValueError("set PersistenceForest(..., keep_simplex_diff=True)")
-            
             simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._barcode_interior_diff, codim1_simplex_diff=node._barcode_codim1_simplex_diff)
             simplices = update_chain_with_diff(signed_simplices=simplices, interior_diff=node._interior_diff, codim1_simplex_diff=node._codim1_simplex_diff)
 
