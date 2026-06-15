@@ -9,7 +9,19 @@ from matplotlib import colors as mcolors
 # ======================
 
 def _to_hex(c):
-    """Convert a Matplotlib color or RGB tuple to hex string."""
+    """
+    Convert a Matplotlib-compatible color to a hex string.
+
+    Parameters
+    ----------
+    c : Any
+        Color accepted by Matplotlib, such as a name, hex string or RGB tuple.
+
+    Returns
+    -------
+    str
+        Normalized hex color string.
+    """
     if isinstance(c, str):
         return mcolors.to_hex(mcolors.to_rgb(c))
     return mcolors.to_hex(c)
@@ -326,7 +338,12 @@ def build_color_scheme(set_sizes: Sequence[int],
 # -----------------------
 
 def _sid(ob) -> int:
-    """Extract a stable set id from an object, casting to int."""
+    """
+    Return the integer color-set id for a bar-like object.
+
+    PersistenceForest bars use ``root_id`` to group related bars into color
+    families.
+    """
     return int(getattr(ob, "root_id"))
 
 def _stable_sid_key(sid: Any) -> Any:
@@ -405,18 +422,22 @@ def color_map_for_bars(
     by_id: bool = False,
 ) -> Dict[object, str]:
     """
-    Build a mapping from bar-like objects to hex colors.
+    Build a color map for barcode bars.
+
+    Bars with the same ``root_id`` receive related color variants. This is the
+    color-family map used by ``PersistenceForest._build_color_map_forest``.
 
     Parameters
     ----------
     bars : iterable
-        Objects exposing ``root_id``; grouping is done by that id.
+        Bar-like objects exposing ``root_id`` and usable as dictionary keys
+        unless ``by_id=True``.
     seed : int | None, optional
         Seed for reproducible scheme generation.
     prefer_start : str | None, optional
         Optional bias for the first base color.
     by_id : bool, optional
-        If True, return {id(obj) -> color} for unhashable objects.
+        If True, return ``{id(obj): color}`` instead of ``{obj: color}``.
 
     Returns
     -------
@@ -443,4 +464,3 @@ def color_map_for_bars(
         for i, ob in enumerate(obs):
             color_map[id(ob) if by_id else ob] = colors[i % len(colors)]
     return color_map
-

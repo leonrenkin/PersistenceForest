@@ -185,7 +185,26 @@ def merge_at_simplex(cycle1: "SignedChain", cycle2: "SignedChain", simplex: list
     return SignedChain(signed_simplices= union.difference({(tuple(simplex),1),(tuple(simplex),-1)}) )
 
 def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tuple] | None, codim1_simplex_diff: Set[tuple] | None):
-    
+    """
+    Apply stored simplex differences to a mutable set of signed simplices.
+
+    Parameters
+    ----------
+    signed_simplices : set[tuple]
+        Current oriented codimension-one simplices, stored as
+        ``(simplex_tuple, orientation)``.
+    interior_diff : set[tuple] | None
+        Oriented full-dimensional simplices whose signed boundaries should be
+        added to ``signed_simplices``.
+    codim1_simplex_diff : set[tuple] | None
+        Oriented codimension-one simplices to remove from ``signed_simplices``.
+
+    Returns
+    -------
+    set[tuple]
+        The same set object after applying the additions and removals.
+    """
+
     if interior_diff is not None:
         for oriented_simplex in interior_diff:
             signed_simplices.update(signed_boundary(simplex =oriented_simplex[0], orientation=oriented_simplex[1]))
@@ -200,7 +219,24 @@ def update_chain_with_diff(signed_simplices: Set[tuple], interior_diff: Set[tupl
 
 @dataclass(slots=True)
 class SignedChain: 
-    signed_simplices: Set[tuple]        # oriented d-simplices, stored as (simplex, orientation)
+    """
+    Oriented simplicial chain used as a cycle representative.
+
+    Attributes
+    ----------
+    signed_simplices : set[tuple]
+        Oriented codimension-one simplices, stored as
+        ``(simplex_tuple, orientation)``.
+    active_start, active_end : float
+        Half-open filtration interval ``[active_start, active_end)`` on which
+        this representative is active.
+    interior_available : bool
+        True when ``interior`` has been computed.
+    interior : set[tuple] | None
+        Oriented full-dimensional simplices whose boundary gives the chain's
+        tracked interior.
+    """
+    signed_simplices: Set[tuple]        # oriented codimension-one simplices, stored as (simplex, orientation)
     active_start: float = float("-inf")
     active_end: float   = float("-inf")
     interior_available: bool = False
@@ -234,7 +270,7 @@ class SignedChain:
         SignedChain
             Chain without simplices that appear with both orientations.
         """
-        # aggregate orientations per underlying simplex
+        # Aggregate orientations per underlying simplex.
         coeffs: Dict[tuple, int] = {}
         for simplex, orientation in self.signed_simplices:
             coeffs[simplex] = coeffs.get(simplex, 0) + int(orientation)
@@ -245,7 +281,7 @@ class SignedChain:
                 cleaned.add((simplex, 1))
             elif c < 0:
                 cleaned.add((simplex, -1))
-            # if c == 0, the +1 and -1 cancel -> drop this edge completely
+            # If c == 0, the +1 and -1 copies cancel.
         
         return SignedChain(
             signed_simplices=cleaned,
@@ -426,6 +462,9 @@ class SignedChain:
         ----------
         point_cloud : ndarray, shape (n_points, dim)
             Ambient point cloud.
+        signed : bool
+            If True, use the stored signed simplices. If False, first cancel
+            opposite-oriented copies via ``unsigned()``.
 
         Returns
         -------
@@ -447,20 +486,26 @@ class SignedChain:
 
 @dataclass(slots=True)
 class PFNode:
-    """ Objects which are the nodes in the LoopForest graph. 
-    Each node has a loop representative."""
-    id: int #does not need to know its own node
+    """
+    Node in the PersistenceForest graph.
+
+    Each node stores a cycle representative and links to its parent and
+    children in the forest. Optional diff fields store how to reconstruct cycle
+    representatives and interiors when ``keep_simplex_diff=True``.
+    """
+    id: int # unique node identifier
     filt_val: float
     cycle: SignedChain 
     children: set[int]                                    #ids of children
     parent: Optional[int] = None
-    #is_root: bool = True  #True if it is the root of a tree, also used for bookkeeping of active loops
+    # is_root would be True for tree roots; parent is the current source of truth.
     _barcode_covered: int = 0
 
-    _simplex_diff_available: bool = False       #We could remove this and always check for tree to save storage
-    _interior_diff: set[tuple] | None = None     # oriented (d+1)-simplices, stored as (simplex, orientation)
-    _codim1_simplex_diff: set[tuple] | None = None  # oriented d-simplices, stored as (simplex, orientation), correspond to oriented simplices which need to be removed
-    #cycle at node: \Cup_{child \in node.children} child.cycle.signed_simplices \cup \Cup_{(simplex, orientation) \in node._interior_diff} signed_boundary(simplex, orientation) \setminus node._codim1_simplex_diff
+    _simplex_diff_available: bool = False       # True when simplex diffs were stored for this node.
+    _interior_diff: set[tuple] | None = None     # oriented full-dimensional simplices, stored as (simplex, orientation)
+    _codim1_simplex_diff: set[tuple] | None = None  # oriented codimension-one simplices to remove, stored as (simplex, orientation)
+    # Cycle at node: union of child cycles plus boundaries from _interior_diff,
+    # minus _codim1_simplex_diff.
     _barcode_interior_diff: set[tuple] | None = None  
     _barcode_codim1_simplex_diff: set[tuple] | None = None  
 
@@ -469,8 +514,12 @@ class PFNode:
 
 class PFBar:
     """ 
-    Object which stores a bar in H1 persistence together with a progression of cycle reps.
-    Each cycle rep has a an active_start and active_end attribute which is the interval in which this representative is optimal.
+    Persistence bar together with a progression of cycle representatives.
+
+    For an ambient ``dim``-dimensional point cloud, these bars represent
+    codimension-one homology classes. Each cycle representative has
+    ``active_start`` and ``active_end`` attributes giving the interval on which
+    this representative is active.
     The cycle reps are a strictly decreasing chain w.r.t. inclusion.
     """
 
@@ -562,7 +611,12 @@ class PFBar:
         return self.death - self.birth
     
 class PersistenceForest:
-    """Object that computes and stores progression of optimal cycles for alpha complex of a point cloud in a forest format."""
+    """
+    Compute and store alpha-complex cycle progressions in forest format.
+
+    For an ambient ``dim``-dimensional point cloud, the forest tracks
+    codimension-one cycle representatives and their barcode.
+    """
 
     def __init__(self, 
                  point_cloud,
@@ -581,14 +635,22 @@ class PersistenceForest:
         ----------
         point_cloud : array-like, shape (n_points, dim)
             Coordinates of the input point set.
-        compute : bool
-            If True, immediately construct the forest.
         reduce : bool
-            If True, collapse consecutive nodes at equal filtration values.
+            If True, collapse parent-child pairs whose filtration values differ
+            by at most ``filtration_tol``.
         compute_barcode : bool
-            If True, compute and store the H1 barcode after building the forest.
+            If True, compute and store the barcode after building the forest.
         print_info : bool
             If True, print timing information during construction.
+        keep_simplex_diff : bool
+            If True, store simplex additions/removals on nodes so cycle
+            representatives and interiors can be reconstructed from diffs.
+        compute_interior : bool
+            If True, reconstruct cycle representatives with their interior
+            simplices. Requires ``keep_simplex_diff=True``.
+        low_memory_mode : bool
+            Reserved for a future diff-only representation. Currently raises
+            ``ValueError`` when enabled.
         filtration_tol : float
             Absolute tolerance used when reducing parent-child pairs at the
             same filtration value.
@@ -621,7 +683,7 @@ class PersistenceForest:
             print(f"Alpha complex generated in {alpha_complex_time}")
 
         start = time.perf_counter()
-        #take square root of filtration value since filtation values for alpha complexes are squared in Gudhi
+        # Take square root of filtration value since Gudhi alpha-complex filtration values are squared.
         for simplex, filtration in self.simplex_tree.get_filtration():
             self.simplex_tree.assign_filtration(simplex, (filtration**0.5)*2)
         
@@ -636,16 +698,19 @@ class PersistenceForest:
         self.landscape_families: Dict[str, Any] = {}
         self.barcode_functionals: Dict[str, Any] = {}
 
+        if low_memory_mode:
+            raise ValueError("This feature is a work in progress. We only story diff insteaf of full cycle reps which should drastically memory usage.")
         if low_memory_mode and not keep_simplex_diff:
             raise ValueError("low_memory_mode=True requires keep_simplex_diff=True")
         self.keep_simplex_diff = keep_simplex_diff
         self.low_memory_mode = low_memory_mode
+        self.compute_interior = compute_interior
 
         self._compute_forest(print_info = print_info)
 
         self.reduced = reduce
         
-        #compute where each loop is active
+        # Compute where each cycle is active.
         self._compute_loop_activity()
 
         if reduce:
@@ -671,13 +736,17 @@ class PersistenceForest:
 
     def add_leaf(self, simplex: List[int], filt_val: float, orientation: int):
         """
-        Create a new leaf in tree. 
-        Corresponds to death of a cycle in homology and adding a loop in algorithm for computing the LoopForest.
+        Create a new leaf node for a full-dimensional simplex.
+
+        In the reverse-filtration algorithm this corresponds to the death of a
+        codimension-one homology class; the new cycle is the signed boundary of
+        ``simplex``.
 
         Parameters
         ----------
         simplex : list[int]
-            Vertices of the (dim+1)-simplex being added.
+            Vertices of the full-dimensional simplex being added. It has
+            length ``self.dim + 1``.
         filt_val : float
             Filtration value where the simplex enters.
         orientation : int
@@ -705,7 +774,7 @@ class PersistenceForest:
             new_node = PFNode(id=nid,filt_val=filt_val, children=set(), cycle=new_cycle, _simplex_diff_available = False)
 
         self.nodes[nid]=new_node
-        self._active_node_ids.add(nid)  #roots are active nodes in algorithm, at termination the active nodes are precicely the roots of the forest 
+        self._active_node_ids.add(nid)  # roots are active nodes; at termination they are the roots of the forest
 
         self.levels.append(filt_val)
 
@@ -713,8 +782,10 @@ class PersistenceForest:
     
     def make_root(self, node: PFNode, filt_val: float):
         """
-        Ends this tree in the forest by creating the root as a top node.
-        Corresponds to birth in homology and removing an edge of a loop without merging it with another loop in LoopForest computation algorithm.
+        End a tree by creating a root parent for an active node.
+
+        In the reverse-filtration algorithm this corresponds to the birth of a
+        codimension-one homology class.
 
         Parameters
         ----------
@@ -749,15 +820,18 @@ class PersistenceForest:
 
     def merge_nodes(self, node1: PFNode, node2: PFNode, simplex: List[int], filt_val: float):
         """ 
-        Creates parent node of node1 and node2 with loop representative parent loop
-        Corresponds to a loop being split into two loops in homology and a new bar appearing in barcode
+        Create a parent node by merging two active child nodes.
+
+        The parent cycle is obtained by unioning the child cycles and removing
+        both orientations of ``simplex``. In the reverse-filtration algorithm,
+        this records a split event and creates a new barcode branch.
 
         Parameters
         ----------
         node1, node2 : PFNode
             Child nodes that are merged.
-        parent_cycle : SignedChain
-            Cycle representative for the new parent node.
+        simplex : list[int]
+            Codimension-one simplex at which the two children cycles merge.
         filt_val : float
             Filtration value of the merge event.
         """
@@ -790,14 +864,17 @@ class PersistenceForest:
     
     def update_node(self, node: PFNode, simplex: List[int], filt_val:float):
         """
-        Update a node when its representative cycle changes.
+        Create a parent node for an active node whose cycle changes.
+
+        The updated cycle is obtained by removing both orientations of
+        ``simplex`` from ``node.cycle``.
 
         Parameters
         ----------
         node : PFNode
             Node whose representative is being updated.
-        updated_cycle : SignedChain
-            New cycle representing the class after the update.
+        simplex : list[int]
+            Codimension-one simplex to remove from the representative.
         filt_val : float
             Filtration value of the update event.
         """
@@ -836,11 +913,6 @@ class PersistenceForest:
 
         Parameters
         ----------
-        reduce : bool
-            If True, collapse consecutive updates that happen at identical
-            filtration values.
-        compute_barcode : bool
-            If True, compute barcodes and store them on ``self.barcode``.
         print_info : bool
             If True, print timing information.
         """
@@ -881,7 +953,7 @@ class PersistenceForest:
 
                 #if cycle is only contained in a single loop and appears only once in that loop once, remove that loop from the active loops 
                 elif len(L) == 1:
-                    #update the loop dict for all faces which very contained in the loop we just removed
+                    # Update the face dictionary for all faces contained in the cycle we just removed.
                     for signed_simplex in L[0].cycle.signed_simplices:
 
                             simplex = signed_simplex[0]
@@ -944,11 +1016,20 @@ class PersistenceForest:
 
     def active_nodes_at(self, filt_val: float) -> List[PFNode]:
         """
-        Return list of active nodes at a given filtration value.
+        Return nodes active at a given filtration value.
 
-        A node is active at r if:
-        - node.filt_val >= r
-        - has a parent and parent has filt val < r
+        A non-root node is active at ``r`` if ``node.filt_val >= r`` and its
+        parent has filtration value ``< r``.
+
+        Parameters
+        ----------
+        filt_val : float
+            Filtration value to query.
+
+        Returns
+        -------
+        list[PFNode]
+            Active nodes sorted by decreasing node filtration value and then id.
         """
         nodes = self.nodes
 
@@ -971,12 +1052,12 @@ class PersistenceForest:
         return active
 
     def active_cycles_at(self, filt_val: float) -> List[SignedChain]:
-        """Return the cycles of nodes active at a given filtration value."""
+        """Return cycle representatives of nodes active at ``filt_val``."""
         active_nodes = self.active_nodes_at(filt_val=filt_val)
         return [node.cycle for node in active_nodes]
 
     def leaves_below_node(self, node: PFNode) -> set[int]:
-        """ Returns set of all leaves below a given node (below in tree means higher filtration value) """
+        """Return ids of all descendant leaves below ``node``."""
         leaf_ids: set[int] = set()
 
         if len(node.children) == 0:
@@ -991,12 +1072,7 @@ class PersistenceForest:
         return leaf_ids
 
     def leaf_to_node_path(self, leaf: PFNode, node: PFNode) -> List[int]:
-        """ 
-        Returns direct path from a leaf to a node.
-        Path is returned as list of node ids
-
-        If there does not exist a path, an error is raised.
-        """
+        """Return node ids on the path from ``leaf`` up to ancestor ``node``."""
         path = [leaf.id]
 
         active_node = leaf
@@ -1012,16 +1088,11 @@ class PersistenceForest:
         return path
 
     def node_to_leaf_path(self, leaf: PFNode, node: PFNode) -> List[int]:
-        """ 
-        Returns direct path from a node to a leaf.
-        Path is returned as list of node ids
-
-        If there does not exist a path, an error is raised.
-        """
+        """Return node ids on the path from ancestor ``node`` down to ``leaf``."""
         return list(reversed(self.leaf_to_node_path(leaf=leaf, node=node)))
 
     def get_root(self, node: PFNode) -> PFNode:
-        """Return the root ancestor of a node."""
+        """Return the highest ancestor of ``node`` with no parent."""
         while node.parent != None:
                     pid = node.parent
                     node = self.nodes[pid]
@@ -1029,7 +1100,7 @@ class PersistenceForest:
         return node
 
     def _update_node_list(self, node_id_list: List[int]) -> List[PFNode]:
-        """ Returns list of all current roots of a given list of node IDs"""
+        """Return current root ancestors for ``node_id_list``."""
         L = [ self.get_root( self.nodes[id] ) for id in node_id_list ]
         return L
 
@@ -1037,8 +1108,11 @@ class PersistenceForest:
 
     def _collapse_parent_child(self, parent: PFNode, child: PFNode):
         """
-        Collapses a parent - child pair into the parent node.
-        Intended for parent - child pair with same filtration value 
+        Collapse a parent-child pair into the parent node.
+
+        Intended for pairs whose filtration values agree up to
+        ``self.filtration_tol``. The parent node is kept; the child is removed
+        and its children are re-parented to ``parent``.
         """
 
         parent.children.remove(child.id)
@@ -1071,7 +1145,7 @@ class PersistenceForest:
 
         Collapse rule for an edge (parent p, child c) with
         p.filt_val <= c.filt_val <= p.filt_val + self.filtration_tol:
-        - Keep the *parent* node p (its loop stays as-is).
+        - Keep the *parent* node p (its cycle stays as-is).
         - Remove the child node c from the forest.
         - The parent of the resulting (collapsed) node remains p.parent (i.e., the
             parent of the original parent), if any.
@@ -1079,6 +1153,11 @@ class PersistenceForest:
             minus the removed child c itself.
         - For every grandchild g in c.children, set g.parent = p.id.
         Repeats until no collapsible edges remain.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information and node counts.
         """
         if print_info:
             print("Reducing the forest")
@@ -1123,12 +1202,13 @@ class PersistenceForest:
     # This will lead to a node which appears in the root list but has type merge
     # Not a mistake in the code, simply the way the edge case is currently handled
     # -> use node.parent == None to check if a node is a root
-    # If a merge is also a root, then the merge should be split into 2 seperate roots as the merge only lives for 0 time
+    # If a merge is also a root, then the merge should be split into 2 separate roots as the merge only lives for 0 time
     # This is not implemented yet and should not occur for points in general position
 
-    # ------ Add active period of each loops ----------
+    # ------ Add active period of each cycle ----------
 
     def _node_activity(self, node):
+        """Return ``(active_start, active_end)`` for a node's cycle."""
         if node.parent == None:
             return node.filt_val, node.filt_val
 
@@ -1138,14 +1218,7 @@ class PersistenceForest:
         return active_start, active_end
 
     def _compute_loop_activity(self):
-        """
-        Annotate each cycle with the interval where it is the optimal
-        representative.
-
-        For every non-root node, set ``cycle.active_start`` to the parent's
-        filtration value and ``cycle.active_end`` to the node's filtration
-        value.
-        """
+        """Annotate each non-root node cycle with its active interval."""
 
         for node in self.nodes.values():
 
@@ -1162,7 +1235,7 @@ class PersistenceForest:
 
     def compute_barcode(self, print_info: bool = False):
         """
-        Compute the H1 barcode from the forest structure.
+        Compute the barcode from the forest structure.
 
         Parameters
         ----------
@@ -1237,7 +1310,7 @@ class PersistenceForest:
          
     def compute_barcode_diff(self, print_info: bool = False):
         """
-        Compute the H1 barcode from the forest structure.
+        Compute the barcode from the forest structure using stored node diffs.
 
         Parameters
         ----------
@@ -1246,9 +1319,11 @@ class PersistenceForest:
 
         Notes
         -----
-        Iterates over leaves, walks to the root (or first covered node), and
-        records the sequence of representatives. Bars are stored in
-        ``self.barcode``.
+        Iterates over leaves in reverse node order, walks to the root or to a
+        merge node with an undiscovered branch, and records the sequence of
+        representatives. When ``keep_simplex_diff=True``, accumulated barcode
+        diffs are stored on merge nodes for later reconstruction of cycle
+        representatives with interiors. Bars are stored in ``self.barcode``.
         """
         
         if print_info:
@@ -1329,7 +1404,26 @@ class PersistenceForest:
         return
 
     def _cycle_reps_from_node_diff(self, bar: PFBar) -> list[SignedChain]:
+        """
+        Reconstruct cycle representatives for a bar from node diffs.
 
+        Parameters
+        ----------
+        bar : PFBar
+            Bar whose node progression should be reconstructed.
+
+        Returns
+        -------
+        list[SignedChain]
+            Cycle representatives ordered by increasing filtration value. Each
+            returned chain has ``interior_available=True`` and an ``interior``
+            set containing accumulated full-dimensional simplices.
+
+        Raises
+        ------
+        ValueError
+            If any node in the progression does not have simplex diffs.
+        """
 
         interior = set()
         simplices = set()
@@ -1363,6 +1457,20 @@ class PersistenceForest:
         return list(reversed(cycle_reps))
 
     def _compute_interior_of_cycle_reps(self,print_info: bool =False):
+        """
+        Replace barcode cycle representatives by diff-reconstructed chains.
+
+        Parameters
+        ----------
+        print_info : bool
+            If True, print timing information.
+
+        Notes
+        -----
+        Requires the forest to have been built with ``keep_simplex_diff=True``.
+        The reconstructed representatives carry accumulated interior simplex
+        data used by ``interior_simplex_activity``.
+        """
         if print_info:
             print("Computing interior of cycle reps")
         interior_start = time.perf_counter()
@@ -1384,7 +1492,21 @@ class PersistenceForest:
         of ``(bar, active_start, active_end)`` tuples. The interval is the
         half-open filtration range where the simplex is in the interior of the
         active cycle representative for that bar.
+
+        Returns
+        -------
+        dict[tuple[int, ...], list[tuple[PFBar, float, float]]]
+            Mapping from simplex keys to bars and active intervals.
+
+        Notes
+        -----
+        Call this only after interiors have been computed, for example by
+        constructing with ``compute_interior=True`` and
+        ``keep_simplex_diff=True``.
         """
+        if not self.keep_simplex_diff and self.compute_interior:
+            raise ValueError("Set PersistenceForest(..., keep_simplex_diff = True, compute_interior = True)")
+
         activity = defaultdict(list)
 
         for bar in self.barcode:
@@ -1413,43 +1535,17 @@ class PersistenceForest:
         return max(self.barcode, key=lambda bar: bar.lifespan())
     
     def longest_bars(self,k:int) -> List[PFBar]:
-        """Return the k bars with the longest lifespan in descending order."""
+        """Return the ``k`` longest bars in descending lifespan order."""
         return sorted(self.barcode, key=lambda bar: bar.lifespan(), reverse=True)[0:k]
     
     def active_bars_at(self, filt_val:float):
-        """
-        Return all bars whose lifespan contains a given filtration value.
-
-        Parameters
-        ----------
-        filt_val : float
-            Filtration value at which to query.
-
-        Returns
-        -------
-        list[PFBar]
-            Bars with birth <= filt_val < death.
-        """
+        """Return bars whose lifespan contains ``filt_val``."""
         return [bar for bar in self.barcode if (bar.birth<=filt_val and bar.death>filt_val)]
 
     # ------ extract cycle representatives ---------
 
     def cycle_reps_at(self, filt_val: float, min_bar_length:float = 0) -> List[SignedChain]:
-        """
-        Return the list of cycle representatives active at a given filtration value.
-
-        Parameters
-        ----------
-        filt_val : float
-            Filtration value at which to query.
-        min_bar_length : float
-            Minimum lifespan of bars to consider.
-
-        Returns
-        -------
-        list[SignedChain]
-            Cycle representatives active at ``filt_val``.
-        """
+        """Return cycle representatives active at ``filt_val``."""
         active_bars = self.active_bars_at(filt_val=filt_val)
         cycles = [bar.cycle_at_filtration_value(filt_val=filt_val) for bar in active_bars if bar.lifespan()>=min_bar_length]
         return cycles
@@ -1459,21 +1555,7 @@ class PersistenceForest:
         filt_val: float,
         min_bar_length: float = 0.0,
     ) -> List[Tuple["PFBar", SignedChain]]:
-        """
-        Return active bars together with their active cycle representatives.
-
-        Parameters
-        ----------
-        filt_val : float
-            Filtration value.
-        min_bar_length : float
-            Minimum lifespan to include.
-
-        Returns
-        -------
-        list[tuple[PFBar, SignedChain]]
-            Active bars and their cycles.
-        """
+        """Return active bars paired with their cycles at ``filt_val``."""
         active = []
         for bar in self.barcode:
             if bar.lifespan() < min_bar_length:
@@ -1557,19 +1639,7 @@ class PersistenceForest:
         return
 
     def _get_color_map(self, coloring: Literal["forest", "bars"] = "forest"):
-        """
-        Return a color map {bar: color}, building it on first use.
-
-        Parameters
-        ----------
-        coloring : {"forest", "bars"}
-            Which color scheme to use.
-
-        Returns
-        -------
-        dict[PFBar, str]
-            Mapping from bars to CSS/hex color strings.
-        """
+        """Return the requested bar color map, building it on first use."""
         if coloring == "forest":
             if not hasattr(self, "color_map_forest"):
                 self._build_color_map_forest()
@@ -1606,7 +1676,7 @@ class PersistenceForest:
         For ambient dimension 2:
             returns edges, triangles
         For ambient dimension 3:
-            returns triangles, tetrahedra
+            returns edges, triangles, tetrahedra
 
         Parameters
         ----------
@@ -1770,7 +1840,7 @@ class PersistenceForest:
         chain : SignedChain
             Cycle representative consisting of oriented triangles.
         signed : bool
-            If False, cancel opposite-oriented duplicate edges first.
+            If False, cancel opposite-oriented duplicate triangles first.
 
         Returns
         -------
@@ -1787,6 +1857,7 @@ class PersistenceForest:
 
     @staticmethod
     def _require_plotly():
+        """Import Plotly graph objects or raise an installation hint."""
         try:
             import plotly.graph_objects as go
         except ImportError as e:
@@ -1798,6 +1869,7 @@ class PersistenceForest:
         return go
 
     def _empty_scatter_2d(self, name: str, showlegend: bool = False):
+        """Return an empty 2D Plotly scatter trace."""
         go = self._require_plotly()
         return go.Scatter(
             x=[np.nan],
@@ -1809,6 +1881,7 @@ class PersistenceForest:
         )
 
     def _empty_cycle_trace_2d(self, name: str = "cycle", showlegend: bool = False):
+        """Return an empty 2D Plotly cycle trace."""
         go = self._require_plotly()
         return go.Scatter(
             x=[np.nan],
@@ -1859,9 +1932,8 @@ class PersistenceForest:
             If True, overlay the active cycles at the filtration value.
         show : bool
             If True, calls plt.show() when done.
-        show_complex : bool | None
-            Whether to render complex geometry (edges/surfaces). If None,
-            defaults to True.
+        show_complex : bool
+            Whether to render complex geometry (edges/surfaces).
         figsize : tuple[float, float]
             Figure size used when ``ax`` is None.
         vertex_size : float
@@ -1876,6 +1948,8 @@ class PersistenceForest:
             Color scheme; builds the map on first use.
         title : str | None
             Title for the axes. Defaults to a filtration summary.
+        min_bar_length : float
+            Only draw active cycles for bars with lifespan at least this value.
         style_2d : dict | None
             Optional 2D style overrides. Supported keys include:
             ``show_orientation_arrows``,
@@ -1892,6 +1966,8 @@ class PersistenceForest:
             ``complex_edge_width``, ``cycle_edge_width``,
             ``complex_edge_alpha``, ``cycle_edge_alpha``,
             ``antialiased``, ``zsort``, ``desaturate_complex``.
+        dpi : int
+            DPI used when a new Matplotlib figure is created.
 
         Returns
         -------
@@ -2172,43 +2248,38 @@ class PersistenceForest:
         linewidth_cycle: float = 0.8,
     ):
         """
-        Plot the 2-D point cloud, all edges/triangles with filtration <= filt_val,
-        and overlay the loops of the nodes active at filt_val.
+        Plot one representative cycle for each sufficiently long barcode bar.
 
-        Notes
-        -----
-        - GUDHI's AlphaComplex / SimplexTree work
-        Pass the same units here.
-        - Uses SimplexTree.get_filtration(), which is sorted by increasing filtration.
+        The representative for each selected bar is sampled at
+        ``birth + lifespan * relative_position``. This method is implemented
+        only for 2D point clouds.
 
         Parameters
         ----------
-        relative_position : float
-            Relative position in the barcode (between 0 and 1).
         min_bar_length : float
             Minimum lifespan of bars to consider.
+        relative_position : float
+            Relative position in each bar, between 0 and 1.
         ax : matplotlib.axes.Axes or None
             Axes to draw on; if None, a new figure+axes are created.
         show : bool
             If True, calls plt.show() when done.
-        fill_triangles : bool
-            If True, lightly fill triangles present at this filtration.
         figsize : tuple[float, float]
             Figure size used when ``ax`` is None.
-        point_size : float
+        vertex_size : float
             Marker size for point cloud.
         coloring : {"forest","bars"}
             Color scheme; builds the map on first use.
         title : str | None
-            Title for the axes. Defaults to a filtration summary.
-        loop_edge_arrows : bool
-            If True, draw small arrows along each loop edge to indicate
+            Title for the axes. Defaults to a relative-position summary.
+        show_orientation_arrows : bool
+            If True, draw small arrows along each cycle edge to indicate
             the orientation of the cycle representatives.
         remove_double_edges : bool
             If True, cancel edges appearing with opposite orientations before
             plotting.
-        show_cycles : bool
-            If True, overlay the active cycles at the filtration value.
+        linewidth_cycle : float
+            Line width for cycle edges.
 
         Returns
         -------
@@ -2234,7 +2305,7 @@ class PersistenceForest:
         # --- Base scatter
         ax.scatter(pts[:, 0], pts[:, 1], s=vertex_size, color="k", zorder=3, label="points")
 
-        # --- Overlay loops from barcode representatives
+        # --- Overlay cycles from barcode representatives
         for bar in self.barcode:
             if bar.lifespan()>=min_bar_length:
 
@@ -2243,11 +2314,11 @@ class PersistenceForest:
                 # >>> make a Sequence[ArrayLike] (list of 2x2 arrays) for Pylance
                 segments = self._chain_segments_2d(chain=cycle,signed=(not remove_double_edges))
 
-                # Thicker colored edges along the loop
+                # Thicker colored edges along the cycle
                 loop_coll = LineCollection(segments, linewidths=linewidth_cycle, colors=[color_map[bar]], zorder=5)
                 ax.add_collection(loop_coll)
 
-                # Optional arrows to show loop edge orientation
+                # Optional arrows to show cycle edge orientation
                 if show_orientation_arrows:
                     for seg in segments:
                         # seg is a 2x2 array: [start, end]
@@ -2295,7 +2366,7 @@ class PersistenceForest:
             ax.set_title(title)
         #ax.set_xlabel("x")
         #ax.set_ylabel("y")
-        # A simple legend (points + edges); loop colors are self-explanatory on top
+        # A simple legend (points + edges); cycle colors are self-explanatory on top
         #handles, labels = ax.get_legend_handles_labels()
         #if handles:
         #    ax.legend(loc="lower right", frameon=True)
@@ -2329,6 +2400,25 @@ class PersistenceForest:
             Output of _complex_snapshot_at_filtration.
         color_map : dict[PFBar, str]
             Bar-to-color mapping.
+        show_cycles : bool
+            If True, include active cycle traces.
+        fill_triangles : bool
+            If True, fill present triangles.
+        signed : bool
+            If False, cancel opposite-oriented duplicate edges before
+            rendering cycles.
+        min_bar_length : float
+            Only include active cycles for bars with lifespan at least this
+            value.
+        vertex_size : float
+            Plotly marker size for point-cloud vertices.
+        linewidth_filt : float
+            Line width for complex edges.
+        linewidth_cycle : float
+            Line width for cycle edges.
+        max_cycle_slots : int | None
+            Fixed number of cycle trace slots. When provided, empty traces are
+            added so animation frames keep a stable trace layout.
 
         Returns
         -------
@@ -2483,6 +2573,37 @@ class PersistenceForest:
             0. complex boundary mesh
             1. points
             2+. cycle mesh slots
+
+        Parameters
+        ----------
+        snapshot : dict
+            Output of ``_complex_snapshot_at_filtration``.
+        color_map : dict[PFBar, str]
+            Bar-to-color mapping.
+        signed : bool
+            If False, cancel opposite-oriented duplicate triangles before
+            rendering cycles.
+        show_cycles : bool
+            If True, include active cycle meshes.
+        show_complex : bool
+            If True, include the complex boundary mesh.
+        min_bar_length : float
+            Only include active cycles for bars with lifespan at least this
+            value.
+        complex_opacity : float
+            Opacity for the complex boundary mesh.
+        cycle_opacity : float
+            Opacity for cycle meshes.
+        vertex_size : float
+            Plotly marker size for point-cloud vertices.
+        max_cycle_slots : int | None
+            Fixed number of cycle trace slots. When provided, empty traces are
+            added so animation frames keep a stable trace layout.
+
+        Returns
+        -------
+        list
+            List of Plotly traces.
         """
         go = self._require_plotly()
         pts = snapshot["points"]
@@ -2659,8 +2780,11 @@ class PersistenceForest:
             If True, overlay cycle representatives.
         fill_triangles : bool
             For 2D only: if True, fill present triangles.
-        remove_double_edges : bool
-            For 2D only: cancel opposite-oriented duplicate edges in cycle reps.
+        signed : bool
+            If False, cancel opposite-oriented duplicate edges before rendering
+            2D cycle representatives. In the current 3D Plotly single-frame
+            path, this argument is not forwarded and cycles are rendered with
+            the 3D helper default.
         min_bar_length : float
             Only show bars with lifespan >= min_bar_length.
         show_complex : bool
@@ -2672,7 +2796,11 @@ class PersistenceForest:
         show : bool
             If True, call fig.show().
         renderer : str | None
-            Plotly renderer used by fig.show()
+            Plotly renderer used by ``fig.show()``.
+        vertex_size : float
+            Plotly marker size for point-cloud vertices.
+        width, height : int | None
+            Figure dimensions in pixels, forwarded to Plotly layout.
 
         Returns
         -------
@@ -2762,32 +2890,36 @@ class PersistenceForest:
 
         Parameters
         ----------
-        filtration_values : sequence[float] | None
-            Explicit slider values. If None, use 100 values between 0 and death of last bar.
         coloring : {"forest", "bars"}
             Which bar color map to use.
         show_cycles : bool
             If True, overlay active cycle representatives.
-        fill_triangles : bool
-            For 2D only: whether to fill present triangles.
         signed : bool
             If False, removes simplices which appear with both orientations.
+        filt_max : float | None
+            Maximum filtration value for the slider. If None, uses
+            ``1.03 * max(bar.death for bar in self.barcode)``.
         min_bar_length : float
             Only show bars with lifespan >= min_bar_length.
-        include_bar_endpoints : bool
-            If True, include barcode births/deaths in default frame values.
-        max_frames : int | None
-            Maximum number of frames used when default values are generated.
         show_complex : bool
             For 3D only: whether to show the complex boundary mesh.
         complex_opacity : float
             Opacity of 3D complex mesh.
         cycle_opacity : float
             Opacity of 3D cycle meshes.
+        resolution : int
+            Number of slider intervals. The figure contains
+            ``resolution + 1`` equally spaced frames from 0 to ``filt_max``.
         show : bool
             If True, call fig.show().
         renderer : str | None
-            Plotly renderer used by fig.show()
+            Plotly renderer used by ``fig.show()``.
+        fill_triangles : bool
+            For 2D only: whether to fill present triangles.
+        vertex_size : float
+            Plotly marker size for point-cloud vertices.
+        width, height : int | None
+            Figure dimensions in pixels, forwarded to Plotly layout.
 
         Returns
         -------
@@ -2947,7 +3079,9 @@ class PersistenceForest:
         ----------
         *args, **kwargs :
             Forwarded to ``forest_plotting._plot_dendrogram_generic``. Common
-            options include ``ax``, ``coloring``, and ``show``.
+            options include ``ax``, ``show``, ``annotate_ids``,
+            ``leaf_spacing``, ``tree_gap_leaves``, ``check_reduced``,
+            ``small_on_top`` and ``threshold``.
         """
         from .forest_plotting import _plot_dendrogram_generic
         return _plot_dendrogram_generic(self, *args, **kwargs)
@@ -2970,10 +3104,12 @@ class PersistenceForest:
             Plot title.
         xlabel : str
             Label for the x-axis.
-        coloring : {"forest","bars"}
+        coloring : {"forest","bars","none","grey"}
             Which color scheme to use:
             - "forest": use self.color_map_forest (tree-structured colors).
             - "bars":   use self.color_map_bars (ignores tree structure).
+            - "none":   use Matplotlib defaults.
+            - "grey":   draw all bars in black.
             If the chosen color map does not exist yet, it is built as in
             `plot_at_filtration`.
         max_bars : int
@@ -2981,6 +3117,12 @@ class PersistenceForest:
             (by lifespan). 0 means show all bars.
         min_bar_length : float
             Filter out bars with lifespan < min_bar_length before plotting.
+        bar_width : float
+            Line width used to draw each barcode interval.
+        descending : bool
+            If True, reverse the selected sort order.
+        tight_layout : bool
+            If True, call ``fig.tight_layout()`` after drawing.
 
         Returns
         -------
@@ -3072,10 +3214,22 @@ class PersistenceForest:
             ``show_cycles``/``show_complex``; keep this dict for values like
             ``vertex_size`` and 3D style values such as
             ``style_3d={'camera_eye': ..., 'complex_face_alpha': ..., 'cycle_face_alpha': ...}``.
+            Backward-compatible keys are translated before forwarding:
+            ``fill_triangles`` to ``show_complex``, ``remove_double_edges`` to
+            ``signed``, ``linewidth_filt`` and ``linewidth_cycle`` to 2D style
+            widths, ``show_orientation_arrows`` to 2D style, and
+            ``camera_eye``/``remove_axes`` to 3D style.
         barcode_kwargs : dict | None
             Extra kwargs forwarded to barcode plotting for matplotlib paths.
+            For animations with a barcode panel, the generic helper manages
+            ``ax`` and uses the top-level ``coloring`` for both panels.
         camera_mode : {"fixed", "orbit"}
             3D camera mode.
+        cloud_figsize, total_figsize : tuple[float, float] | None
+            Deprecated aliases for ``figsize``. ``total_figsize`` applies when
+            ``with_barcode=True``; ``cloud_figsize`` applies otherwise.
+        plot_kwargs : dict | None
+            Deprecated alias for ``filtration_kwargs``.
         alpha_digits : int | None
             Number of digits shown in the filtration value overlay (matplotlib paths).
 
@@ -3333,6 +3487,12 @@ class PersistenceForest:
             Typical keyword arguments include ``filename``, ``fps``,
             ``frames``, ``t_min``, ``t_max``, ``dpi``, ``total_figsize``,
             ``filtration_kwargs`` and ``measurement_kwargs``.
+            ``filtration_kwargs`` is copied and normalized before forwarding:
+            ``fill_triangles``, ``remove_double_edges``, ``linewidth_filt``,
+            ``linewidth_cycle``, ``show_orientation_arrows``, ``camera_eye``
+            and ``remove_axes`` are translated to the current
+            ``plot_at_filtration`` style keys. ``plot_kwargs`` is no longer
+            accepted.
 
         Returns
         -------
@@ -3432,8 +3592,9 @@ class PersistenceForest:
         ----------
         cycle_func : callable
             Function returning a scalar for a SignedChain and point cloud.
-        signed : bool, default True
-            If False, evaluate the metric after cancelling opposing simplices.
+        signed : bool
+            If True, evaluate ``cycle_func`` on the stored signed chain. If
+            False, evaluate it after cancelling opposing simplices.
         bar : PFBar | None
             If provided, restrict the plot to a single bar.
         ax : matplotlib.axes.Axes | None
@@ -3448,9 +3609,16 @@ class PersistenceForest:
             If True, draw the baseline of the step function.
         show : bool
             If True, call ``plt.show()`` after plotting.
+        *args :
+            Forwarded to ``forest_landscapes.plot_barcode_measurement_generic``.
         **kwargs :
             Forwarded to ``StepFunctionData.plot`` (e.g., ``baseline_kwargs``,
             line color/linewidth, etc.).
+
+        Returns
+        -------
+        tuple[matplotlib.axes.Axes, StepFunctionData]
+            The axes and the piecewise-constant measurement data.
         """
         from .forest_landscapes import plot_barcode_measurement_generic
 
@@ -3507,7 +3675,8 @@ class PersistenceForest:
             where ``chain`` is a SignedChain. This lets you define arbitrary
             functionals on cycles (e.g. total length, mass, etc.).
         label : str
-            label/ID for this forest (stored in the family metadata).
+            Key used to store the family in ``self.landscape_families`` when
+            ``cache=True``.
         max_k : int
             Number of landscape levels λ_1..λ_max_k.
         num_grid_points : int, optional
@@ -3518,8 +3687,21 @@ class PersistenceForest:
             Ignore bars with lifespan < min_bar_length.
         x_grid : np.ndarray | None, optional
             Optional common grid to evaluate all landscapes on.
-        signed: bool
-            If set to False, Deletes simplices apearing in both directions, corresponds to generalized landscapes with unsigned simplices
+        cache : bool
+            If True, store the resulting family in ``self.landscape_families``
+            under ``label``.
+        signed : bool
+            If True, evaluate ``cycle_func`` on stored signed chains. If False,
+            evaluate it after cancelling opposing simplices.
+        cache_functionals : bool
+            If True, store the per-bar ``BarcodeFunctionals`` in
+            ``self.barcode_functionals``.
+        functionals_label : str | None
+            Label used when caching or retrieving per-bar functionals. If None,
+            the generic helper uses ``label``.
+        compute_functionals : bool
+            If True, compute per-bar functionals before building landscapes. If
+            False, reuse cached functionals with ``functionals_label``.
 
         Returns
         -------
@@ -3577,12 +3759,20 @@ class PersistenceForest:
             Axes to draw on; if None, a new figure is created.
         title : str | None
             Custom plot title.
+        show : bool
+            Forwarded through ``**kwargs`` to the generic plotting helper; if
+            True, call ``plt.show()`` after plotting.
         show_legend : bool | None
             Whether to show the legend. Defaults to showing it for fewer than
             10 plotted landscapes and hiding it otherwise.
         linewidth : float | None
             Line width for the landscape plots. If omitted, Matplotlib's
             default line width is used.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            Axes containing the landscape plot.
         """
         from .forest_landscapes import plot_landscape_family
         return plot_landscape_family(
@@ -3619,6 +3809,11 @@ class PersistenceForest:
             Axes to draw on; if None, a new figure is created.
         title : str | None
             Custom plot title.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            Axes containing the comparison plot.
         """
         from .forest_landscapes import plot_landscape_comparison_between_functionals
         return plot_landscape_comparison_between_functionals(self, labels=labels, k=k, ax=ax, title=title, *args, **kwargs)

@@ -17,7 +17,10 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 
 def _camera_from_eye(camera_eye: Optional[Any]) -> tuple[float, float]:
     """
-    Parse camera specification into matplotlib `(elev, azim)`.
+    Parse a camera specification into Matplotlib ``(elev, azim)``.
+
+    ``camera_eye`` may be ``None``, a dict with ``"elev"`` and ``"azim"``
+    keys, or a two-element tuple/list.
     """
     elev, azim = 22.0, -55.0
     if camera_eye is None:
@@ -49,6 +52,14 @@ def _desaturate_color(color: Any, amount: float) -> tuple[float, float, float]:
 
 
 def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Merge 2D filtration style overrides with default values.
+
+    Supported keys are ``point_color``, ``point_alpha``,
+    ``complex_face_color``, ``complex_face_alpha``, ``complex_edge_color``,
+    ``complex_edge_width``, ``cycle_edge_width``,
+    ``show_orientation_arrows``, ``arrow_linewidth`` and ``arrow_scale``.
+    """
     style = {
         "point_color": "k",
         "point_alpha": 0.8,
@@ -67,6 +78,16 @@ def _resolve_style_2d(style_2d: Optional[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _resolve_style_3d(style_3d: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Merge 3D filtration style overrides with default values.
+
+    Supported keys are ``camera_eye``, ``remove_axes``, ``point_color``,
+    ``point_alpha``, ``depthshade_points``, ``complex_color``,
+    ``complex_face_alpha``, ``cycle_face_alpha``, ``complex_edge_color``,
+    ``cycle_edge_color``, ``complex_edge_width``, ``cycle_edge_width``,
+    ``complex_edge_alpha``, ``cycle_edge_alpha``, ``antialiased``, ``zsort``
+    and ``desaturate_complex``.
+    """
     style = {
         "camera_eye": None,
         "remove_axes": False,
@@ -113,7 +134,51 @@ def _plot_at_filtration_generic(
     """
     Plot simplicial filtration at a fixed filtration value.
 
-    Dispatches to a 2D or 3D renderer based on `forest.dim`.
+    Dispatches to the 2D or 3D renderer based on ``forest.dim``. This is the
+    generic target for ``PersistenceForest.plot_at_filtration``.
+
+    Parameters
+    ----------
+    forest : object
+        Forest-like object exposing ``dim``, ``point_cloud``, ``filtration``,
+        ``barcode``, ``_get_color_map``, ``_chain_segments_2d``,
+        ``_chain_triangles_3d``, ``_active_bars_with_cycles_at`` and
+        ``_complex_snapshot_at_filtration`` as needed by the selected
+        dimension.
+    filt_val : float
+        Filtration threshold to render.
+    ax : matplotlib.axes.Axes | None
+        Axes to draw on. A new axes is created when omitted.
+    show : bool
+        If True, call ``plt.show()`` after plotting.
+    show_complex : bool
+        Whether to draw complex edges/faces.
+    figsize : tuple[float, float]
+        Figure size when creating a new figure.
+    vertex_size : float
+        Marker size for point-cloud vertices.
+    coloring : {"forest", "bars"}
+        Bar color map to use for active cycle representatives.
+    title : str | None
+        Optional axes title.
+    show_cycles : bool
+        Whether to draw active cycle representatives.
+    signed : bool
+        If False, cancel opposite-oriented duplicate simplices before drawing
+        cycle representatives.
+    min_bar_length : float
+        Only draw cycles for bars with lifespan at least this value.
+    point_zorder, cycle_zorder : float
+        Matplotlib z-order controls used by the 2D renderer.
+    dpi : int
+        DPI used when creating a new figure.
+    style_2d, style_3d : dict | None
+        Renderer-specific style overrides.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        Axes containing the rendered filtration snapshot.
     """
     if forest.dim == 2:
         return _plot_at_filtration_2d(
@@ -174,7 +239,11 @@ def _plot_at_filtration_2d(
     style_2d: Optional[dict[str, Any]] = None,
 ):
     """
-    Plot 2D filtration; behavior is kept compatible with prior implementation.
+    Plot a 2D filtration snapshot with optional active cycle overlays.
+
+    Parameters are the 2D subset forwarded by
+    ``_plot_at_filtration_generic``. ``style_2d`` accepts the keys documented
+    in ``_resolve_style_2d``.
     """
     color_map = forest._get_color_map(coloring=coloring)
     style = _resolve_style_2d(style_2d)
@@ -311,7 +380,11 @@ def _plot_at_filtration_3d(
     style_3d: Optional[dict[str, Any]] = None,
 ):
     """
-    Plot 3D filtration snapshot with optional complex boundary and cycle surfaces.
+    Plot a 3D filtration snapshot with optional complex and cycle surfaces.
+
+    Parameters are the 3D subset forwarded by
+    ``_plot_at_filtration_generic``. ``style_3d`` accepts the keys documented
+    in ``_resolve_style_3d``.
     """
     color_map = forest._get_color_map(coloring=coloring)
     style = _resolve_style_3d(style_3d)

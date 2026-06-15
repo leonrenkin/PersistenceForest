@@ -19,8 +19,9 @@ into a number. This is supplied by the user as:
 
     cycle_value_func(rep, point_cloud) -> float
 
-For LoopForest, `rep` is a Loop.
 For PersistenceForest, `rep` is a SignedChain with `signed_simplices`.
+Other forest classes may provide their own cycle representative type as long
+as the supplied `cycle_value_func` knows how to evaluate it.
 
 """
 
@@ -41,7 +42,7 @@ CycleValueFunc = Callable[[Any, np.ndarray], float]
 @dataclass
 class StepFunctionData:
     """
-    Representation of a piecewise-constant function:
+    Piecewise-constant function data.
 
     f(t) = vals[i]  on [starts[i], ends[i])
          = baseline elsewhere.
@@ -171,7 +172,7 @@ class StepFunctionData:
 
         Parameters
         ----------
-        x_grid : numpy.ndarray
+        grid : numpy.ndarray
             1D array of points at which to evaluate the function.
             must be non-empty and sorted in non-decreasing order.
 
@@ -266,14 +267,19 @@ class BarcodeFunctionals:
     _bar_to_index: Dict[Any, int] = field(init=False, repr=False)
 
     def __post_init__(self):
+        """Build the lookup from bar object to stored row index."""
         self._bar_to_index = {bar: i for i, bar in enumerate(self.bars)}
 
     def get(self, bar_or_index: Union[int, Any]) -> StepFunctionData:
+        """
+        Return the step function for a bar object or stored integer index.
+        """
         if isinstance(bar_or_index, int):
             return self.step_functions[bar_or_index]
         return self.step_functions[self._bar_to_index[bar_or_index]]
 
     def __getitem__(self, bar_or_index: Union[int, Any]) -> StepFunctionData:
+        """Alias for ``get`` to support bracket access."""
         return self.get(bar_or_index)
     
     def evaluate_on_grid(
@@ -285,7 +291,7 @@ class BarcodeFunctionals:
 
         Parameters
         ----------
-        x_grid:
+        grid:
             One-dimensional, monotonically non-decreasing sample grid.
         bars:
             Optional subset of bars (bar objects) or indices to evaluate.
@@ -326,8 +332,8 @@ class BarcodeFunctionals:
 @dataclass
 class GeneralizedLandscapeFamily:
     """
-    Container for a whole family of generalized landscapes for a given LoopForest
-    and a fixed cycle function.
+    Container for a family of generalized landscapes for one forest and cycle
+    functional.
 
     - bar_kernels: per-bar kernels (typically already rescaled if mode="pyramid")
     - landscapes: k -> λ_k (k-th landscape) as PiecewiseLinearFunction
@@ -796,7 +802,7 @@ def _build_step_function_data(
         baseline: float = 0.0,
     ) -> StepFunctionData:
         """
-        Build the piecewise-constant function associated to a single bar.
+        Build the piecewise-constant measurement function for one bar.
 
         Each cycle representative contributes an interval
         `[cycle.active_start, cycle.active_end]` on which the function takes the
@@ -806,9 +812,9 @@ def _build_step_function_data(
         Parameters
         ----------
         forest :
-            Forest-like object providing `point_cloud` and `barcode`.
+            Forest-like object providing ``point_cloud`` and ``barcode``.
         bar :
-            Bar instance taken from `forest.barcode`.
+            Bar instance taken from ``forest.barcode``.
         cycle_func : CycleValueFunc
             Callable that assigns a scalar to each cycle representative.
         baseline : float, default 0.0
@@ -863,6 +869,30 @@ def compute_barcode_functionals(
     baseline: float = 0.0,
     cache: bool = True,
 ) -> BarcodeFunctionals:
+    """
+    Compute per-bar step functions for one cycle functional.
+
+    Parameters
+    ----------
+    forest :
+        Forest-like object with ``barcode``, ``point_cloud`` and
+        ``barcode_functionals`` when caching is enabled.
+    cycle_func : CycleValueFunc
+        Callable ``(cycle_rep, point_cloud) -> float``.
+    label : str
+        Cache key and label for the resulting container.
+    min_bar_length : float
+        Ignore bars with lifespan below this threshold.
+    baseline : float
+        Value outside each bar's representative intervals.
+    cache : bool
+        If True, store the result in ``forest.barcode_functionals[label]``.
+
+    Returns
+    -------
+    BarcodeFunctionals
+        Step-function data for the selected bars.
+    """
 
     bars = [bar for bar in forest.barcode if (bar.death - bar.birth) >= min_bar_length]
     step_functions: Dict[int, StepFunctionData] = {}
@@ -901,14 +931,12 @@ def plot_barcode_measurement_generic(
         **kwargs,
     ) -> Tuple["matplotlib.axes.Axes", StepFunctionData]:
     """
-    Plot the 'barcode measurement' for a single bar using the generalized
-    convolution machinery and the StepFunctionData representation.
+    Plot the cycle measurement step function for a single bar.
 
     Parameters
     ----------
     forest :
-        Any forest-like object with a `barcode` attribute and bars that have
-        `.birth`, `.death`, and `.cycle_reps`.
+        Forest-like object with ``barcode``, ``point_cloud`` and ``max_bar``.
     cycle_func : CycleValueFunc
         Callable (cycle_rep, point_cloud) -> float, used to assign a scalar
         value to each cycle representative of the bar.
@@ -922,8 +950,14 @@ def plot_barcode_measurement_generic(
         If given, set the y-limits to this range.
     title : str, optional
         Title for the axes. If None, a default title is constructed.
+    label : str, optional
+        Label used in the fallback title when ``title`` is omitted.
+    show_baseline : bool, default True
+        Whether to draw the baseline of the step function.
     show : bool, default False
         Whether to call `plt.show()` after plotting.
+    **kwargs
+        Forwarded to ``StepFunctionData.plot`` as line style options.
 
     Returns
     -------
@@ -961,9 +995,11 @@ def _build_convolution_with_indicator(
             tol: float = 1e-12
     ) -> Tuple[Callable[[float], float], List[float], List[float]]:
         """
-        Compute h(x) = (f * 1_[a,b])(x) where:
-        - f is piecewise-constant: f(t) = vals[i] on [starts[i], ends[i]] and 0 elsewhere
-        - 1_[a,b] is the indicator of [a, b] (assumes a <= b)
+        Compute ``h(x) = (f * 1_[a,b])(x)``.
+
+        ``f`` is piecewise constant with values ``vals[i]`` on
+        ``[starts[i], ends[i]]`` and zero elsewhere. ``1_[a,b]`` is the
+        indicator of ``[a, b]``.
 
         Parameters
         ----------
@@ -974,22 +1010,12 @@ def _build_convolution_with_indicator(
         tol : float, default 1e-12
             Quantisation tolerance for merging nearly coincident event points.
 
-        Returns:
-        (h, xs, ys)
-            h  : Callable that evaluates the convolution in O(log n) time via linear interpolation.
-            xs : Sorted x 'knot' locations where the slope can change (event points).
-            ys : The exact h(x) values at those knots (piecewise-linear nodes).
-
-        Correctness sketch:
-        h'(x) = f(x-a) - f(x-b). Each interval [s,e] of f contributes slope jumps of ±v
-        at x ∈ {a+s, a+e, b+s, b+e}. Between events, h has constant slope, hence is linear.
-        We start from 0 at the left boundary (the sliding window is fully left of support).
-
-        Runtime:
-        Building events: O(n)
-        Sorting events:  O(n log n) with at most 4n unique points
-        One sweep:       O(n)
-        Evaluating h(x): O(log n) per query (binary search on xs)
+        Returns
+        -------
+        tuple
+            ``(h, xs, ys)`` where ``h`` evaluates the piecewise-linear
+            convolution, ``xs`` are knot locations and ``ys`` are values at
+            those knots.
         """
         if b < a:
             raise ValueError("Require a <= b for the indicator [a,b].")
@@ -1071,11 +1097,11 @@ def compute_convolution_kernel_for_bar(
         sf: Optional[StepFunctionData] = None,
     ) -> PiecewiseLinearFunction:
         """
-        Use the existing build_convolution_with_indicator to compute
+        Compute the raw convolution kernel for one bar.
 
-            g(x) = (f * 1_[birth, death])(x)
-
-        where f is the piecewise-constant function from build_step_function_data.
+        The kernel is ``g(x) = (f * 1_[birth, death])(x)``, where ``f`` is the
+        step function induced by ``cycle_func`` on the bar's cycle
+        representatives.
 
         Parameters
         ----------
@@ -1276,39 +1302,41 @@ def compute_generalized_landscape_family(
         compute_functionals: bool = True,
     ) -> GeneralizedLandscapeFamily:
         """
-        Compute the generalized landscape family for this LoopForest for a given
-        cycle_func.
+        Compute a generalized landscape family for a forest.
 
         If x_grid is provided, all landscapes are evaluated on that grid
         (and num_grid_points is ignored). This is crucial for consistent
-        vectorisations across multiple LoopForest objects.
+        vectorisations across multiple forest objects.
 
         Parameters
         ----------
+        forest:
+            Forest-like object with ``barcode``, ``point_cloud``,
+            ``landscape_families`` and ``barcode_functionals``.
         cycle_func:
-            Function f(SignedChain,point_cloud) -> scalar.
+            Function ``f(cycle_rep, point_cloud) -> scalar``.
+        label:
+            Key used to store the family in ``forest.landscape_families``.
         max_k:
             Number of landscapes λ_1, ..., λ_max_k to compute.
         num_grid_points:
             Number of grid points used when x_grid is None.
         mode:
             "raw" or "pyramid" (see compute_landscape_kernel_for_bar).
-        label:
-            Key used to store the family in forest.landscape_families.
         min_bar_length:
             Ignore bars with (death - birth) < min_bar_length.
         x_grid:
             Optional fixed grid on which to evaluate the landscapes.
         cache:
-            Decides if landscapes is saved to forest or only returned.
-        compute_functionals:
-            If True, compute barcode functionals.
-            If False, reuse cached functionals with the given label.
+            If True, save the result to ``forest.landscape_families[label]``.
         cache_functionals:
             If True, cache computed barcode functionals on the forest.
-        functinonals_label:
+        functionals_label:
             Label used to cache/retrieve barcode functionals.
             If None, uses `label`.
+        compute_functionals:
+            If True, compute barcode functionals. If False, reuse cached
+            functionals with ``functionals_label``.
 
         Returns
         -------
@@ -1481,7 +1509,7 @@ def compute_generalized_landscape_family(
             },
         )
 
-        # Cache on the LoopForest instance
+        # Cache on the forest instance.
         if cache:
             if not hasattr(forest, "landscape_families"):
                 forest.landscape_families = {}
@@ -1517,6 +1545,8 @@ def plot_landscape_family(
         Axis to draw on; a new one is created if omitted.
     title : str, optional
         Custom plot title.
+    show : bool
+        If True, call ``plt.show()`` after plotting.
     show_legend : bool, optional
         Whether to show the legend. Defaults to showing it for fewer than
         10 plotted landscapes and hiding it otherwise.

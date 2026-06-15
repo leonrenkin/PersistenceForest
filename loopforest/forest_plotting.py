@@ -59,7 +59,7 @@ def _plot_barcode_generic(
         tight_layout: bool = True,
     ):
     """
-    Plot a 1D barcode from forest.barcode (a set[Bar]).
+    Plot a 1D barcode from ``forest.barcode``.
 
     Each Bar contributes a horizontal segment from birth to death.
     If death is +inf, an arrow is drawn to the right.
@@ -80,7 +80,7 @@ def _plot_barcode_generic(
         - "forest": use forest.color_map_forest (tree-structured colors).
         - "bars":   use forest.color_map_bars (ignores tree structure).
         - "none":   all bars share matplotlib defaults.
-        - "grey":   force a uniform grey.
+        - "grey":   draw all bars in black.
         If the chosen color map does not exist yet, it is built as in
         `plot_at_filtration`.
     max_bars : int
@@ -88,6 +88,12 @@ def _plot_barcode_generic(
         (by lifespan). 0 means show all bars.
     min_bar_length : float
         Filter out bars with lifespan < min_bar_length before plotting.
+    bar_width : float
+        Line width used for each barcode interval.
+    descending : bool
+        If True, reverse the selected sort order.
+    tight_layout : bool
+        If True, call ``fig.tight_layout()`` after drawing.
 
     Returns
     -------
@@ -249,7 +255,10 @@ def _plot_dendrogram_generic(
         threshold: float = 0.0,
     ):
     """
-    Plot a dendrogram-style view of a Forest where y = filtration value.
+    Plot a dendrogram-style view of a forest.
+
+    The y-coordinate is each node's ``filt_val``. This generic helper is used
+    by ``PersistenceForest.plot_dendrogram``.
 
     Parameters
     ----------
@@ -270,8 +279,8 @@ def _plot_dendrogram_generic(
     small_on_top : bool, optional
         If True, invert the y-axis so smaller filtration values appear on top.
     threshold : float, optional
-        Minimum vertical span (root vs. leaves) required to keep a tree;
-        trees with max_leaf_delta <= threshold are omitted.
+        Minimum vertical span, measured from root to leaves, required to keep a
+        tree. Trees with ``max_leaf_delta <= threshold`` are omitted.
 
     Returns
     -------
@@ -484,7 +493,10 @@ def _animate_filtration_generic(
         alpha_digits: Optional[int] = None,
     ):
         """
-        Create an animation of a Forest across its filtration values.
+        Create a Matplotlib animation across filtration values.
+
+        This is the generic target for ``PersistenceForest.animate_filtration``
+        when using Matplotlib-backed animation paths.
 
         Parameters
         ----------
@@ -523,6 +535,10 @@ def _animate_filtration_generic(
             ``{"left","right","bottom","top"}``.
         filtration_kwargs : dict | None, optional
             Extra keyword arguments forwarded to ``plot_at_filtration``.
+            The keys ``ax``, ``show`` and ``filt_val`` are reserved and are
+            managed by this helper. If ``coloring`` is supplied here and
+            conflicts with the top-level ``coloring``, the top-level value
+            wins.
             Example::
                 filtration_kwargs=dict(
                     show_complex=True,
@@ -539,6 +555,13 @@ def _animate_filtration_generic(
                     sort="length",
                     title="Barcode",
                 )
+        cloud_figsize, total_figsize : tuple[float, float] | None, optional
+            Deprecated aliases used only when ``figsize`` is omitted.
+        plot_kwargs : dict | None, optional
+            Deprecated alias for ``filtration_kwargs``.
+        alpha_digits : int | None, optional
+            Number of decimal places in the filtration-value overlay. If None,
+            uses compact formatting.
 
         Returns
         -------
@@ -901,7 +924,27 @@ def _resolve_matplotlib_figsize(
     total_figsize: Optional[tuple[float, float]] = None,
 ) -> tuple[tuple[float, float], tuple[int, int]]:
     """
-    Resolve a deterministic, even pixel canvas and matching figure size.
+    Resolve a deterministic even-pixel canvas and matching figure size.
+
+    Parameters
+    ----------
+    with_barcode : bool
+        Whether the figure contains a barcode panel.
+    dpi : int
+        Dots per inch used to convert between inches and pixels.
+    figsize : tuple[float, float] | None
+        Preferred figure size in inches.
+    pixel_size : tuple[int, int] | None
+        Preferred canvas size in pixels. Takes precedence over ``figsize``.
+    width, height : int | None
+        Deprecated pixel-size aliases; both must be supplied together.
+    cloud_figsize, total_figsize : tuple[float, float] | None
+        Deprecated figure-size aliases used when ``figsize`` is omitted.
+
+    Returns
+    -------
+    tuple
+        ``(figsize_inches, pixel_size_even)``.
     """
     if int(dpi) <= 0:
         raise ValueError("dpi must be a positive integer.")
@@ -947,7 +990,19 @@ def _resolve_figure_margins(
     figure_margins: Optional[dict[str, float]] = None,
 ) -> dict[str, float]:
     """
-    Resolve validated matplotlib subplot margins.
+    Resolve validated Matplotlib subplot margins.
+
+    Parameters
+    ----------
+    with_barcode : bool
+        Selects defaults for one-panel or two-panel layouts.
+    figure_margins : dict[str, float] | None
+        Optional dict with exactly ``left``, ``right``, ``bottom`` and ``top``.
+
+    Returns
+    -------
+    dict[str, float]
+        Margins suitable for ``fig.subplots_adjust``.
     """
     if figure_margins is None:
         if with_barcode:
