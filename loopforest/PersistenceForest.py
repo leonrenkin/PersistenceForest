@@ -1539,6 +1539,8 @@ class PersistenceForest:
         colors = sns.color_palette("tab20", len(bars_sorted))
 
         self.color_map_bars = {bars_sorted[i]: colors[i] for i in range(len(bars_sorted))}
+        self.set_longest_bar_colors(coloring = "bars", colors = [   "#1f78b4",   "#e31a1c",  "#33a02c",  "#ff7f00",  "#6a3d9a",  "#e7298a",  "#17becf",   "#bcbd22",   "#b15928",  "#fdb462",  "#7570b3", "#66a61e"]
+)
         return
 
     def _get_color_map(self, coloring: Literal["forest", "bars"] = "forest"):
