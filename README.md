@@ -16,7 +16,7 @@ Legacy note: `LoopForest.py` is an older version kept for reference and is no lo
 ## Installation
 Tested with Python 3.13.3.
 ```bash
-git clone https://github.com/leonrenkin/LoopForest.git
+git clone https://github.com/leonrenkin/PersistenceForest.git
 cd LoopForest
 pip install .
 ```
