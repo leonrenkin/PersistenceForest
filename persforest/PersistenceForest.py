@@ -2942,20 +2942,6 @@ class PersistenceForest:
 
         return fig
 
-    def interactive_plot_filtration(self, *args, **kwargs):
-        """
-        Deprecated alias for ``plot_filtration_interactive``.
-
-        For backward compatibility, forwards all arguments to
-        ``plot_filtration_interactive``.
-        """
-        warnings.warn(
-            "`interactive_plot_filtration` is deprecated; use `plot_filtration_interactive`.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.plot_filtration_interactive(*args, **kwargs)
-
     # ------ forest plotting tools ------------
 
     def plot_dendrogram(
