@@ -24,3 +24,4 @@ examples/Numerical_stability.ipynb
 .gitignore
 examples/signed-vs-unsigned.ipynb
 examples/signed-vs-unsigned.py
+classification_benchmarks/planar_graph_generation_comparison.ipynb

@@ -1,7 +1,8 @@
 import math
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, List, Dict, Set, Optional
 from numpy.typing import NDArray
 import numpy as np
+from .PersistenceForest import SignedChain
 
 _EPS = 1e-12
 
@@ -236,25 +237,154 @@ def curvature_excess(points: Iterable[Tuple[float, float]], normalize: bool = Tr
         K /= (2.0*math.pi)
     return K 
 
-def signed_chain_edge_length(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+# -------- Signed Chains --------------
+
+def signed_chain_to_polyhedral_paths(signed_chain: SignedChain, point_cloud: NDArray) -> List[NDArray[np.int32]]:
     """
-    Sum of Euclidean lengths of all 1-simplices in a signed chain.
+    Convert a 1-dimensional signed chain into closed vertex paths.
 
     Parameters
     ----------
-    signed_chain
-        Object exposing ``signed_simplices`` that yields (simplex, sign) pairs.
-        Only simplices with two vertices (edges) contribute.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain whose simplices are oriented edges.
+    point_cloud : ndarray, shape (n_points, 2)
+        Planar coordinates indexed by the chain vertices.
 
     Returns
     -------
-    float: Total edge length (orientation ignored).
+    list of ndarray
+        Closed paths as vertex-index arrays. The closing vertex is not repeated.
+    """
+    if not signed_chain.signed_simplices:
+        return []
 
-    Notes
-    -----
-    Signs/orientations are ignored; the chain is treated as unsigned for length.
+    if signed_chain.dim() !=1:
+        raise ValueError(f"Polyhedral path methods only works for Signed 1-chains. Dimension of chain: {signed_chain.dim()}")
+    if point_cloud.ndim != 2 or point_cloud.shape[1] != 2:
+        raise ValueError("point_cloud must have shape (n_points, 2)")
+
+    from collections import defaultdict
+
+    def _start_end(simplex: Tuple[int, ...], orientation: int) -> Tuple[int, int]:
+        """Return (start, end) vertex of an oriented 1-simplex."""
+        if len(simplex) != 2:
+            raise ValueError(
+                "signed_chain_to_polyhedral_paths is only implemented for 1-chains (edges)."
+            )
+        a, b = simplex
+        if orientation == 1:
+            return a, b
+        elif orientation == -1:
+            return b, a
+        else:
+            raise ValueError("Orientation must be ±1.")
+
+    def _angle_ccw(prev_vec: np.ndarray, next_vec: np.ndarray) -> float:
+        """
+        Signed angle from prev_vec to next_vec in [0, 2π),
+        measured counterclockwise.
+        """
+        # Skip zero-length directions at caller level
+        cross = prev_vec[0] * next_vec[1] - prev_vec[1] * next_vec[0]
+        dot   = prev_vec[0] * next_vec[0] + prev_vec[1] * next_vec[1]
+        angle = math.atan2(cross, dot)  # ∈ (-π, π]
+        if np.all(prev_vec == -next_vec):
+            angle = -math.pi
+        return angle
+
+    # Precompute adjacency: start vertex -> list of (signed_simplex, end_vertex)
+    edges_by_start: Dict[int, List[Tuple[tuple, int]]] = defaultdict(list)
+    for signed_simplex in signed_chain.signed_simplices:
+        simplex, orientation = signed_simplex
+        start, end = _start_end(simplex, orientation)
+        edges_by_start[start].append((signed_simplex, end))
+
+    visited: Set[tuple] = set()
+    paths: List[NDArray[np.int32]] = []
+
+    for signed_simplex in signed_chain.signed_simplices:
+        if signed_simplex in visited:
+            continue
+
+        simplex, orientation = signed_simplex
+        start, end = _start_end(simplex, orientation)
+
+        # Start a new path with this edge
+        path_vertices: List[int] = [int(start), int(end)]
+        visited.add(signed_simplex)
+
+        prev_vertex = start
+        cur_vertex = end
+
+        p_prev = np.asarray(point_cloud[prev_vertex], dtype=float)
+        p_cur  = np.asarray(point_cloud[cur_vertex],  dtype=float)
+        prev_vec = p_cur - p_prev
+
+        while True:
+            candidates = edges_by_start.get(cur_vertex, [])
+            if not candidates:
+                # No outgoing edges from this vertex
+                raise ValueError("No outgoing edges, this should not happen")
+
+            best_edge: Optional[tuple] = None
+            best_next_vertex: Optional[int] = None
+            best_angle: Optional[float] = None
+
+            for edge_key, next_vertex in candidates:
+                p_next = np.asarray(point_cloud[next_vertex], dtype=float)
+                next_vec = p_next - p_cur
+
+                # Ignore degenerate directions
+                if np.allclose(next_vec, 0.0):
+                    continue
+
+                angle = _angle_ccw(prev_vec, next_vec)
+
+                if best_angle is None or angle > best_angle:
+                    best_angle = angle
+                    best_edge = edge_key
+                    best_next_vertex = int(next_vertex)
+
+            if best_edge is None or best_next_vertex is None:
+                # Only degenerate candidates
+                raise ValueError("Only degenerate candidates, this should not happen")
+
+            # Stop if we would traverse an already covered signed simplex
+            if best_edge in visited:
+                break
+
+            # Advance along the chosen leftmost edge
+            path_vertices.append(best_next_vertex)
+            visited.add(best_edge)
+
+            prev_vertex, cur_vertex = cur_vertex, best_next_vertex
+            p_prev, p_cur = p_cur, np.asarray(point_cloud[cur_vertex], dtype=float)
+            prev_vec = p_cur - p_prev
+
+        paths.append(np.array(path_vertices[:-1], dtype=np.int32)) #last vertex is repeated, remove it
+
+    for path in paths:
+        if len(path)<2:
+            print(paths)
+            raise ValueError("Path too short in signed_chain_to_polyhedral_paths()")
+
+    return paths
+
+def signed_chain_edge_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    """
+    Return the total Euclidean length of the chain's edges.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Sum of edge lengths, ignoring orientation.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
@@ -275,89 +405,173 @@ def signed_chain_edge_length(signed_chain, point_cloud: NDArray[np.float64]) -> 
 
     return total
 
-def constant_one_functional(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def constant_one_functional(signed_chain = None, point_cloud = None) -> float:
     """
-    Return the constant value 1; useful as a trivial chain functional.
+    Return the constant value 1, ignoring all inputs.
 
     Parameters
     ----------
-    signed_chain
-        Unused; present for signature compatibility.
-    point_cloud : np.ndarray
-        Unused; present for signature compatibility.
-
-    Returns
-    -------
-    int
-        Always 1.
-    """
-    return 1
-
-def signed_chain_connected_components(signed_chain, point_cloud: NDArray[np.float64]) -> float:
-    """
-    Number of disjoint polyhedral paths in the signed chain.
-
-    Parameters
-    ----------
-    signed_chain
-        Object exposing ``polyhedral_paths(point_cloud)``.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
-
-    Returns
-    -------
-    int
-        Count of connected components.
-    """
-    if signed_chain.dim() != 1:
-        raise ValueError("Function only defined for 1-dimensional chains")
-    return len( signed_chain.polyhedral_paths(point_cloud) )
-
-def signed_chain_excess_connected_components(signed_chain, point_cloud: NDArray[np.float64]) -> float:
-    """
-    Number of components minus one; zero when the chain is connected.
-
-    Parameters
-    ----------
-    signed_chain
-        Object exposing ``polyhedral_paths(point_cloud)``.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
-
-    Returns
-    -------
-    int
-        Components count minus one.
-    """
-    if signed_chain.dim() != 1:
-        raise ValueError("Function only defined for 1-dimensional chains")
-    return len( signed_chain.polyhedral_paths(point_cloud) ) - 1
-
-def signed_chain_area(signed_chain, point_cloud:  NDArray[np.float64]) -> float:
-    """
-    Area enclosed by a chain with possible holes.
-
-    Assumes exactly one outer boundary and any number of inner boundaries.
-    The path whose x-coordinate attains the global maximum is treated as the
-    outer boundary; its area is added while all others are subtracted.
-
-    Parameters
-    ----------
-    signed_chain
-        Object exposing ``polyhedral_paths(point_cloud)`` that yield index
-        sequences for polygon boundaries.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain, optional
+        Ignored.
+    point_cloud : ndarray, optional
+        Ignored.
 
     Returns
     -------
     float
-        Signed area of the chain (outer minus inner regions).
+        Always 1.
+    """
+    return 1
+
+def signed_chain_connected_components(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> int:
+    """
+    Count the closed paths represented by a signed 1-chain.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    int
+        Number of closed paths.
+    """
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+    return len(signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud))
+
+def signed_chain_excess_connected_components(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> int:
+    """
+    Count closed paths beyond the first one.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    int
+        Number of closed paths minus one.
+    """
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+    return len(signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud)) - 1
+
+def signed_chain_connected_components_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> int:
+    """
+    Count closed paths formed only by doubled simplices.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    int
+        Number of closed paths formed by doubled simplices.
+    """
+    
+    purely_signed_chain = signed_chain.only_double_simplices()
+    if len(purely_signed_chain.signed_simplices)==0:
+        return 0
+    
+    return signed_chain_connected_components( signed_chain=purely_signed_chain, point_cloud=point_cloud)
+
+def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    """
+    Return the average length of doubled-edge components.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Average doubled-edge component length, divided by 2.
+    """
+    tendril_chain = signed_chain.only_double_simplices()
+    if len(tendril_chain.signed_simplices)==0:
+        return 0
+    length = signed_chain_edge_length(signed_chain=tendril_chain, point_cloud=point_cloud)
+    tendril_num = len(signed_chain_to_polyhedral_paths(signed_chain=tendril_chain, point_cloud=point_cloud))
+    
+    return length / (tendril_num*2)
+
+def signed_chain_num_of_branching_points(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    """
+    Count vertices incident to more than two signed edges.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices. Unused, kept for the
+        vectorisation functional signature.
+
+    Returns
+    -------
+    int
+        Number of vertices contained in more than two signed 1-simplices.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
-    paths = list( signed_chain.polyhedral_paths(point_cloud) )
+    vertex_counts: Dict[int, int] = {}
+    for simplex, sign in signed_chain.signed_simplices:
+
+        for vertex in simplex:
+            vertex_counts[vertex] = vertex_counts.get(vertex, 0) + 1
+
+    return sum(1 for count in vertex_counts.values() if count > 2)
+
+def signed_chain_num_of_branching_points_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    purely_signed_chain = signed_chain.only_double_simplices()
+    if len(purely_signed_chain.signed_simplices)==0:
+        return 0
+    
+    return signed_chain_num_of_branching_points(signed_chain=purely_signed_chain, point_cloud=point_cloud)
+
+def signed_chain_tendril_branching_ratio(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    tendril_branching_count = signed_chain_num_of_branching_points_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
+    tendril_count = signed_chain_connected_components_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
+    if tendril_count == 0:
+        return 0
+    return tendril_branching_count / tendril_count
+
+def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float64]) -> float:
+    """
+    Return the area enclosed by a signed 1-chain.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Outer area minus inner path areas.
+    """
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+
+    paths = signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud)
     x_max_list = np.array([point_cloud[path, 0].max() for path in paths])
     index_max = np.argmax(x_max_list)
 
@@ -373,28 +587,26 @@ def signed_chain_area(signed_chain, point_cloud:  NDArray[np.float64]) -> float:
             total_area -= polygon_area(point_cloud[path])
     return total_area
 
-def signed_chain_excess_curvature(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_excess_curvature(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Sum of ``curvature_excess`` over every polyhedral path in the chain.
+    Return total excess curvature over the chain's closed paths.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
-        Total excess curvature across all paths.
+        Sum of unnormalized excess curvature values.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
 
-    paths = list( signed_chain.polyhedral_paths(point_cloud) )
+    paths = signed_chain_to_polyhedral_paths(signed_chain=signed_chain, point_cloud=point_cloud)
     total = 0
     for path in paths:
         if len(path) < 2:
@@ -404,46 +616,58 @@ def signed_chain_excess_curvature(signed_chain, point_cloud: NDArray[np.float64]
 
     return total
 
-def signed_chain_excess_curvature_normalized(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_excess_curvature_diff_to_unsigned(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Sum of ``curvature_excess`` with normalized=True over every polyhedral path in the chain.
-
+    Return excess curvature lost when opposite orientations are cancelled.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
-        Total normalized excess curvature across all paths.
+        Difference between signed and unsigned excess curvature.
+    """
+    diff = signed_chain_excess_curvature(signed_chain=signed_chain,point_cloud=point_cloud) - signed_chain_excess_curvature(signed_chain=signed_chain.unsigned(),point_cloud=point_cloud)
+    return diff
+
+def signed_chain_excess_curvature_normalized(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    """
+    Return total excess curvature normalized by 2π.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
+
+    Returns
+    -------
+    float
+        Normalized excess curvature.
     """
     return signed_chain_excess_curvature(signed_chain, point_cloud) / (2.0*math.pi)
 
-
-def signed_chain_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Circularity functional: 4pi * area / perimeter^2  for the chain's paths.
-    This is 1 for a perfect circle and between 0 and 1 for less circular shapes.
+    Return the circularity score ``4π * area / perimeter**2``.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
-        Circularity measure; higher values indicate more circular shapes.
+        Circularity score; 1 is circular, lower values are less circular.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
@@ -454,47 +678,39 @@ def signed_chain_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> 
 
     return circularity
 
-def signed_chain_circularity_complement(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_circularity_complement(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Return 1-circularity
-    Circularity functional: 4pi * area / perimeter^2  for the chain's paths.
-    This is 0 for a perfect circle and between 0 and 1 for less circular shapes.
+    Return ``1 - signed_chain_circularity(...)``.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
-        Non-Circularity measure; higher values indicate more circular shapes.
+        Complement of the circularity score.
     """
     return 1- signed_chain_circularity(signed_chain=signed_chain, point_cloud=point_cloud)
 
-
-def signed_chain_non_circularity(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_non_circularity(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Circularity functional: perimeter^2 / (4pi*area) - 1 for the chain's paths.
-    This is zero for a perfect circle and positive for less circular shapes.
+    Return the non-circularity score ``perimeter**2 / (4π * area) - 1``.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
-        Non-Circularity measure; higher values indicate less circular shapes.
+        Non-circularity score; 0 is circular, higher values are less circular.
     """
     if signed_chain.dim() != 1:
         raise ValueError("Function only defined for 1-dimensional chains")
@@ -504,24 +720,21 @@ def signed_chain_non_circularity(signed_chain, point_cloud: NDArray[np.float64])
 
     return non_circularity
 
-def signed_chain_volume(signed_chain, point_cloud: NDArray[np.float64]) -> float:
+def signed_chain_volume(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
     """
-    Returns volume of a signed chain. 
-    For a 2d point cloud, it corresponds to length (and not contained area), 
-    For a 3d point cloud, it corresponds to area (and not contained volume).
+    Return the summed simplex volume of a signed chain.
 
     Parameters
     ----------
-    signed_chain
-        Object containing signed simplices of the form (simplex, sign), 
-        where simplex is of the form tuple[int] corresponing to indices in point cloud
-        and sign is +-1.
-    point_cloud : (n_points, dim) np.ndarray
-        Coordinates for the ambient point cloud.
+    signed_chain : SignedChain
+        Chain of simplices whose vertices index into ``point_cloud``.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices.
 
     Returns
     -------
     float
+        Sum of absolute simplex volumes, ignoring orientation.
     """
 
     simplices = np.asarray([simplex for simplex, sign in signed_chain.signed_simplices])
@@ -533,4 +746,3 @@ def signed_chain_volume(signed_chain, point_cloud: NDArray[np.float64]) -> float
     dets = np.linalg.det(mats)
 
     return float(np.abs(dets).sum())
-
