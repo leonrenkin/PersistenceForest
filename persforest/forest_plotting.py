@@ -1289,7 +1289,11 @@ def _animate_filtration_generic_3d_matplotlib(
             active = sorted(active, key=lambda bc: bc[0].lifespan(), reverse=True)
 
             for bar, cycle in active:
-                tri_faces = forest._chain_triangles_3d(cycle, signed=signed)
+                if cycle.dim() != 2:
+                    raise ValueError(
+                        f"3D filtration animation expected a 2-chain, got dim={cycle.dim()}"
+                    )
+                tri_faces = cycle.simplices(signed=signed)
                 if not tri_faces:
                     continue
                 cycle_polys = [frame_pts[list(face)] for face in tri_faces]
