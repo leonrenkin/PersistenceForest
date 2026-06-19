@@ -510,6 +510,48 @@ def signed_chain_avg_tendril_length(signed_chain: SignedChain, point_cloud: NDAr
     
     return length / (tendril_num*2)
 
+def signed_chain_num_of_branching_points(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    """
+    Count vertices incident to more than two signed edges.
+
+    Parameters
+    ----------
+    signed_chain : SignedChain
+        Signed 1-chain.
+    point_cloud : ndarray, shape (n_points, dim)
+        Coordinates indexed by the chain vertices. Unused, kept for the
+        vectorisation functional signature.
+
+    Returns
+    -------
+    int
+        Number of vertices contained in more than two signed 1-simplices.
+    """
+    if signed_chain.dim() != 1:
+        raise ValueError("Function only defined for 1-dimensional chains")
+
+    vertex_counts: Dict[int, int] = {}
+    for simplex, sign in signed_chain.signed_simplices:
+
+        for vertex in simplex:
+            vertex_counts[vertex] = vertex_counts.get(vertex, 0) + 1
+
+    return sum(1 for count in vertex_counts.values() if count > 2)
+
+def signed_chain_num_of_branching_points_only_signed_simplices(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    purely_signed_chain = signed_chain.only_double_simplices()
+    if len(purely_signed_chain.signed_simplices)==0:
+        return 0
+    
+    return signed_chain_num_of_branching_points(signed_chain=purely_signed_chain, point_cloud=point_cloud)
+
+def signed_chain_tendril_branching_ratio(signed_chain: SignedChain, point_cloud: NDArray[np.float64]) -> float:
+    tendril_branching_count = signed_chain_num_of_branching_points_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
+    tendril_count = signed_chain_connected_components_only_signed_simplices(signed_chain=signed_chain, point_cloud=point_cloud)
+    if tendril_count == 0:
+        return 0
+    return tendril_branching_count / tendril_count
+
 def signed_chain_area(signed_chain: SignedChain, point_cloud:  NDArray[np.float64]) -> float:
     """
     Return the area enclosed by a signed 1-chain.

@@ -17,6 +17,7 @@ from loopforest.cycle_rep_vectorisations import (
     signed_chain_connected_components_only_signed_simplices,
     signed_chain_excess_curvature,
     signed_chain_excess_curvature_diff_to_unsigned,
+    signed_chain_tendril_branching_ratio
 )
 
 CycleFunc = Callable[..., float]
@@ -35,13 +36,10 @@ FUNCTIONAL_CONFIGS = (
     FunctionalConfig("unsigned_circularity_complement", signed_chain_circularity_complement, False),
     FunctionalConfig("signed_excess_curvature", signed_chain_excess_curvature, True),
     FunctionalConfig("signed_circularity_complement", signed_chain_circularity_complement, True),
-    FunctionalConfig(
-        "excess_curvature_signed_unsigned_diff",
-        signed_chain_excess_curvature_diff_to_unsigned,
-        True,
-    ),
+    #FunctionalConfig("excess_curvature_signed_unsigned_diff",signed_chain_excess_curvature_diff_to_unsigned,True,),
     FunctionalConfig("avg_tendril_length", signed_chain_avg_tendril_length, True),
     FunctionalConfig("tendril_count", signed_chain_connected_components_only_signed_simplices, True),
+    #FunctionalConfig("tendril_branching_ratio", signed_chain_tendril_branching_ratio, True),
 )
 
 
@@ -90,7 +88,7 @@ def _featurize_point_cloud_row(
     signed,
     landscape_feature_params,
 ):
-    point_cloud = np.load(Path(base_dir) / point_cloud_param_row["save_path"])
+    point_cloud = np.load(point_cloud_param_row["save_path"])
     feature = featurize_point_cloud(
         point_cloud=point_cloud,
         cycle_func=cycle_func,
@@ -205,14 +203,16 @@ def process_cycle_func(
 
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parent
-    output_dir = base_dir / "outputs" / "features"
-    point_cloud_params_path = base_dir / "outputs" / "loop_tendril_params.csv"
-    point_cloud_metadata_path = base_dir / "outputs" / "loop_tendril_metadata.json"
+    output_dir = base_dir / "outputs" / "features_single_uniform"
+    point_cloud_params_path = base_dir / "outputs" / "loop_tendril_single_uniform_params.csv"
+    point_cloud_metadata_path = base_dir / "outputs" / "loop_tendril_single_uniform_metadata.json"
+
+    x_grid_first_layer = np.linspace(0, 1, 51)
 
     landscape_feature_params = {
-        "x_grid": np.linspace(0, 0.4, 21),
-        "x_grid_first_layer": np.linspace(0, 1, 101),
-        "max_k": 25,
+        "x_grid": np.linspace(0, 0.4, 11),
+        "x_grid_first_layer": x_grid_first_layer,
+        "max_k": 20,
         "min_bar_length": 0.0,
     }
     max_workers = max((os.cpu_count() or 2) - 1, 1)

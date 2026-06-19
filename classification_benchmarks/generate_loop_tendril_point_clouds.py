@@ -83,7 +83,7 @@ def generate_params(
 
 if __name__ == "__main__":
 
-    out_dir = Path("outputs")
+    out_dir = Path("classification_benchmarks/outputs")
     out_dir.mkdir(exist_ok=True)
 
     metadata = {
@@ -118,9 +118,9 @@ if __name__ == "__main__":
             "post_sample_noise_std": 0.0,
         },
         "outputs": {
-            "params_csv": "loop_tendril_params.csv",
-            "metadata_json": "loop_tendril_metadata.json",
-            "point_cloud_dir": "point_clouds",
+            "params_csv": "loop_tendril_branched_polarized_params.csv",
+            "metadata_json": "loop_tendril_branched_polarized_metadata.json",
+            "point_cloud_dir": "point_clouds_branched_polarized",
         },
     }
 
@@ -172,8 +172,9 @@ if __name__ == "__main__":
             return_metadata=False,
         ) * scaling   # type: ignore
 
+        save_path = point_cloud_dir / f"{row.sample_id}.npy"
 
-        np.save(point_cloud_dir / f"{row.sample_id}.npy", point_cloud)
+        np.save(save_path, point_cloud)
         rows.append({
             "sample_id": row.sample_id,
             "n_points": len(point_cloud),
@@ -184,9 +185,11 @@ if __name__ == "__main__":
             "root_mode": row.root_mode,
             "branching_probability": row.branching_probability,
             "scaling": scaling,
+            "save_path": str(point_cloud_dir / f"{row.sample_id}.npy")
         })
 
-    pd.DataFrame(rows).to_csv(out_dir / metadata["outputs"]["params_csv"], index=False)
+    df = pd.DataFrame(rows)
+    df.to_csv(out_dir / metadata["outputs"]["params_csv"], index=False)
     (out_dir / metadata["outputs"]["metadata_json"]).write_text(
         json.dumps(metadata, indent=2, sort_keys=True),
         encoding="utf-8",
