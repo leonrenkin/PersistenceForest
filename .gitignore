@@ -25,3 +25,6 @@ examples/Numerical_stability.ipynb
 examples/signed-vs-unsigned.ipynb
 examples/signed-vs-unsigned.py
 classification_benchmarks/planar_graph_generation_comparison.ipynb
+**/outputs
+.pytest_cache
+.venv
