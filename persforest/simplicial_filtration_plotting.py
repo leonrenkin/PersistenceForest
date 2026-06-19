@@ -7,7 +7,9 @@ The public entry point is `_plot_at_filtration_generic`, which dispatches to
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from collections import defaultdict
+from typing import Any, Literal, Optional, Tuple
+import itertools
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -141,8 +143,7 @@ def _plot_at_filtration_generic(
     ----------
     forest : object
         Forest-like object exposing ``dim``, ``point_cloud``, ``filtration``,
-        ``barcode``, ``_get_color_map``, ``_chain_segments_2d``,
-        ``_chain_triangles_3d``, ``_active_bars_with_cycles_at`` and
+        ``barcode``, ``_get_color_map``, ``_active_bars_with_cycles_at`` and
         ``_complex_snapshot_at_filtration`` as needed by the selected
         dimension.
     filt_val : float
@@ -304,9 +305,14 @@ def _plot_at_filtration_2d(
         for bar in forest.barcode:
             if filt_val >= bar.birth and filt_val < bar.death and bar.lifespan()>=min_bar_length:
                 cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
-                segments = forest._chain_segments_2d(
-                    chain=cycle,
-                    signed=signed,
+                if cycle.dim() != 1:
+                    raise ValueError(
+                        f"plot_at_filtration expected a 1-chain, got dim={cycle.dim()}"
+                    )
+                segments = (
+                    cycle.segments(point_cloud=forest.point_cloud)
+                    if signed
+                    else cycle.unsigned().segments(point_cloud=forest.point_cloud)
                 )
 
                 loop_coll = LineCollection(
@@ -363,6 +369,227 @@ def _plot_at_filtration_2d(
     return ax
 
 
+def _plot_at_filtration_with_dual_2d(
+    forest,
+    filt_val: float,
+    ax=None,
+    fill_triangles: bool = True,
+    figsize: tuple[float, float] = (7, 7),
+    vertex_size: float = 12,
+    coloring: Literal["forest", "bars"] = "forest",
+    dual_vertex_size: float = 12,
+    show_cycles: bool = True,
+    linewidth_filt: float = 0.6,
+    linewidth_cycle: float = 1.8,
+    linewidth_dual_edge: float = 0.4,
+    show_dual: bool = True,
+    show: bool = True,
+):
+    """
+    Plot primal and dual edges of the alpha complex at a filtration value.
+
+    Parameters
+    ----------
+    forest : object
+        Forest-like object exposing ``point_cloud``, ``filtration``,
+        ``barcode``, ``_get_color_map`` and cycle representatives.
+    filt_val : float
+        Filtration threshold for displaying simplices.
+    ax : matplotlib.axes.Axes or None
+        Axes to draw on; a new figure is created if None.
+    fill_triangles : bool
+        If True, fill triangles that are present at or before filt_val.
+    figsize : tuple[float, float]
+        Size of the figure if ax is None.
+    vertex_size : float
+        Marker size for input points.
+    coloring : {"forest","bars"}
+        Color scheme to use for active cycles.
+    dual_vertex_size : float
+        Marker size for dual vertices.
+    show_cycles : bool
+        If True, overlay the active cycles at the filtration value.
+    linewidth_filt : float
+        Line width for primal edges.
+    linewidth_cycle : float
+        Line width for cycle edges.
+    linewidth_dual_edge : float
+        Line width for dual edges.
+    show_dual : bool
+        If True, overlay the dual edges and dual vertices.
+    show : bool
+        If True, calls plt.show() when done.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    """
+    color_map = forest._get_color_map(coloring=coloring)
+
+    pts = np.asarray(forest.point_cloud, dtype=float)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError("point_cloud must be an (n_points, 2) array-like.")
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+
+    edge_info: dict[Tuple[int, int], tuple[np.ndarray, float]] = {}
+    triangle_info: dict[Tuple[int, int, int], tuple[np.ndarray, np.ndarray, float]] = {}
+    edge_to_triangles: dict[Tuple[int, int], list[Tuple[int, int, int]]] = defaultdict(list)
+
+    for simplex, filtration in forest.filtration:
+        if len(simplex) == 2:
+            i, j = simplex
+            edge_key = tuple(sorted((i, j)))
+            edge_info[edge_key] = (np.array([pts[i], pts[j]]), filtration)
+        elif len(simplex) == 3:
+            i, j, k = simplex
+            tri_key = tuple(sorted((i, j, k)))
+            coords = np.array([pts[i], pts[j], pts[k]])
+            triangle_info[tri_key] = (coords, coords.mean(axis=0), filtration)
+            for edge in itertools.combinations(tri_key, 2):
+                edge_to_triangles[tuple(sorted(edge))].append(tri_key)
+
+    edges_present: list[np.ndarray] = []
+    edges_future: list[np.ndarray] = []
+    for segment, filtration in edge_info.values():
+        if filt_val >= filtration:
+            edges_present.append(segment)
+        else:
+            edges_future.append(segment)
+
+    tris_present: list[np.ndarray] = []
+    dual_vertices_present: list[np.ndarray] = []
+    for coords, barycenter, filtration in triangle_info.values():
+        if filtration <= filt_val:
+            tris_present.append(coords)
+        else:
+            dual_vertices_present.append(barycenter)
+
+    dual_edges_present: list[np.ndarray] = []
+    dual_edges_future: list[np.ndarray] = []
+    for edge_key, tri_keys in edge_to_triangles.items():
+        if len(tri_keys) != 2:
+            continue
+        edge_data = edge_info.get(edge_key)
+        tri1 = triangle_info.get(tri_keys[0])
+        tri2 = triangle_info.get(tri_keys[1])
+        if edge_data is None or tri1 is None or tri2 is None:
+            continue
+
+        segment = np.array([tri1[1], tri2[1]])
+        if filt_val < edge_data[1]:
+            dual_edges_present.append(segment)
+        else:
+            dual_edges_future.append(segment)
+
+    ax.scatter(
+        pts[:, 0],
+        pts[:, 1],
+        s=vertex_size,
+        color="k",
+        label="points",
+        marker="o",
+        edgecolors="none",
+        zorder=2.8,
+    )
+
+    if fill_triangles and tris_present:
+        ax.add_collection(
+            PolyCollection(
+                tris_present,
+                closed=True,
+                edgecolors="none",
+                facecolors="C0",
+                alpha=0.2,
+                zorder=1,
+            )
+        )
+
+    if dual_vertices_present and show_dual:
+        present_arr = np.array(dual_vertices_present)
+        ax.scatter(
+            present_arr[:, 0],
+            present_arr[:, 1],
+            s=dual_vertex_size,
+            c="C3",
+            marker="o",
+            edgecolors="none",
+            zorder=2.8,
+        )
+
+    if edges_future:
+        ax.add_collection(
+            LineCollection(
+                edges_future,
+                linewidths=linewidth_filt,
+                colors="0.45",
+                alpha=0.5,
+                zorder=1.6,
+            )
+        )
+
+    if edges_present:
+        ax.add_collection(
+            LineCollection(
+                edges_present,
+                linewidths=linewidth_filt,
+                colors="0.3",
+                zorder=2,
+                label="edges",
+            )
+        )
+
+    if show_dual:
+        if dual_edges_future:
+            ax.add_collection(
+                LineCollection(
+                    dual_edges_future,
+                    colors="C3",
+                    linewidths=linewidth_dual_edge,
+                    alpha=0.5,
+                    linestyle="dotted",
+                    zorder=3.6,
+                )
+            )
+
+        if dual_edges_present:
+            ax.add_collection(
+                LineCollection(
+                    dual_edges_present,
+                    colors="C3",
+                    linewidths=linewidth_dual_edge,
+                    alpha=1,
+                    zorder=4,
+                    label="dual edges",
+                )
+            )
+
+    if show_cycles:
+        for bar in forest.barcode:
+            if filt_val >= bar.birth and filt_val < bar.death:
+                cycle = bar.cycle_at_filtration_value(filt_val=filt_val)
+                segments = [
+                    np.array(pts[list(signed_simplex[0])])
+                    for signed_simplex in cycle.signed_simplices
+                ]
+                ax.add_collection(
+                    LineCollection(
+                        segments,
+                        linewidths=linewidth_cycle,
+                        colors=[color_map[bar]],
+                        zorder=5,
+                    )
+                )
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(fr"$\alpha$ = {filt_val:.4g}")
+
+    if show:
+        plt.show()
+
+    return ax
+
 def _plot_at_filtration_3d(
     forest,
     filt_val: float,
@@ -401,11 +628,9 @@ def _plot_at_filtration_3d(
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError("point_cloud must be an (n_points, 3) array-like.")
 
-    created_ax = False
     if ax is None:
         fig = plt.figure(figsize=figsize,dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
-        created_ax = True
     elif not hasattr(ax, "zaxis"):
         raise ValueError("3D plotting requires a matplotlib 3D axis (projection='3d').")
 
@@ -454,11 +679,15 @@ def _plot_at_filtration_3d(
 
         from matplotlib import colors as mcolors
         for bar, cycle in active:
-            tri_faces = forest._chain_triangles_3d(cycle, signed=signed)
+            if cycle.dim() != 2:
+                raise ValueError(
+                    f"plot_at_filtration expected a 2-chain, got dim={cycle.dim()}"
+                )
+            tri_faces = cycle.simplices(signed=signed)
             if not tri_faces:
                 continue
             cycle_polys = [pts[list(face)] for face in tri_faces]
-            color = color_map.get(bar, "#d62728")
+            color = color_map[bar]
             cycle_edge_color_eff = (
                 color if style["cycle_edge_color"] is None else style["cycle_edge_color"]
             )
@@ -508,9 +737,151 @@ def _plot_at_filtration_3d(
     else:
         ax.set_title(title)
 
-    if show and created_ax:
-        plt.show()
-    elif show:
+    if show:
         plt.show()
 
+    return ax
+
+
+def plot_barcode_cycle_reps(
+    forest,
+    min_bar_length: float = 0,
+    relative_position: float = 0.1,
+    ax=None,
+    show: bool = True,
+    figsize: tuple[float, float] = (7, 7),
+    vertex_size: float = 3,
+    coloring: Literal["forest", "bars"] = "forest",
+    title: Optional[str] = None,
+    show_orientation_arrows: bool = False,
+    remove_double_edges: bool = False,
+    linewidth_cycle: float = 0.8,
+):
+    """
+    Plot one representative cycle for each sufficiently long barcode bar.
+
+    The representative for each selected bar is sampled at
+    ``birth + lifespan * relative_position``. This method is implemented
+    only for 2D point clouds.
+
+    Parameters
+    ----------
+    forest : object
+        Forest-like object exposing ``dim``, ``point_cloud``, ``barcode`` and
+        ``_get_color_map``.
+    min_bar_length : float
+        Minimum lifespan of bars to consider.
+    relative_position : float
+        Relative position in each bar, between 0 and 1.
+    ax : matplotlib.axes.Axes or None
+        Axes to draw on; if None, a new figure+axes are created.
+    show : bool
+        If True, calls plt.show() when done.
+    figsize : tuple[float, float]
+        Figure size used when ``ax`` is None.
+    vertex_size : float
+        Marker size for point cloud.
+    coloring : {"forest","bars"}
+        Color scheme; builds the map on first use.
+    title : str | None
+        Title for the axes. Defaults to a relative-position summary.
+    show_orientation_arrows : bool
+        If True, draw small arrows along each cycle edge to indicate
+        the orientation of the cycle representatives.
+    remove_double_edges : bool
+        If True, cancel edges appearing with opposite orientations before
+        plotting.
+    linewidth_cycle : float
+        Line width for cycle edges.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    """
+    if relative_position < 0 or relative_position > 1:
+        raise ValueError("relative_position must be in [0,1]")
+
+    if forest.dim != 2:
+        raise ValueError("plot_barcode_cycle_reps only implemented for dimension 2")
+
+    color_map = forest._get_color_map(coloring=coloring)
+
+    pts = np.asarray(forest.point_cloud, dtype=float)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError("point_cloud must be an (n_points, 2) array-like.")
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+
+    ax.scatter(pts[:, 0], pts[:, 1], s=vertex_size, color="k", zorder=3, label="points")
+
+    for bar in forest.barcode:
+        if bar.lifespan() < min_bar_length:
+            continue
+
+        cycle = bar.cycle_at_filtration_value(
+            filt_val=bar.birth + bar.lifespan() * relative_position
+        )
+        if cycle.dim() != 1:
+            raise ValueError(
+                f"plot_barcode_cycle_reps expected a 1-chain, got dim={cycle.dim()}"
+            )
+        segments = (
+            cycle.segments(point_cloud=forest.point_cloud)
+            if not remove_double_edges
+            else cycle.unsigned().segments(point_cloud=forest.point_cloud)
+        )
+        ax.add_collection(
+            LineCollection(
+                segments,
+                linewidths=linewidth_cycle,
+                colors=[color_map[bar]],
+                zorder=5,
+            )
+        )
+
+        if show_orientation_arrows:
+            for seg in segments:
+                (x0, y0), (x1, y1) = np.asarray(seg, dtype=float)
+                dx = x1 - x0
+                dy = y1 - y0
+                length = float(np.hypot(dx, dy))
+                if length == 0.0:
+                    continue
+
+                frac = 0.5
+                mx = 0.5 * (x0 + x1)
+                my = 0.5 * (y0 + y1)
+                ux = dx / length
+                uy = dy / length
+
+                half = 0.5 * frac * length
+                x_start = mx - ux * half
+                y_start = my - uy * half
+                x_end = mx + ux * half
+                y_end = my + uy * half
+
+                ax.annotate(
+                    "",
+                    xy=(x_end, y_end),
+                    xytext=(x_start, y_start),
+                    arrowprops=dict(
+                        arrowstyle="-|>",
+                        linewidth=0.2,
+                        color=color_map[bar],
+                        mutation_scale=6,
+                    ),
+                    zorder=6,
+                )
+
+    ax.set_aspect("equal", adjustable="box")
+    if title is None:
+        ax.set_title(
+            fr"Barcode cycle representatives at relative position {relative_position:.2f}"
+        )
+    else:
+        ax.set_title(title)
+    ax.autoscale()
+    if show:
+        plt.show()
     return ax
