@@ -6,7 +6,7 @@ import gudhi as gd
 
 # %%
 # Import PersistenceForest class
-# PersistenceForest contains methods for plotting barcodes, cycle representatives, and computing vectorisations based on cycle representatives
+# PersistenceForest contains methods for plotting barcodes, cycle representatives, and generalized landscapes.
 # This is the central class of the LoopForest package
 from loopforest import PersistenceForest
 
@@ -63,7 +63,7 @@ from loopforest.cycle_rep_vectorisations import signed_chain_edge_length, consta
 
 #compute generalized landscapes
 #by default (cache=True), landscapes are saved in PersForest object with given label
-#landscape can be plotted and vectorized from PersForest object with given label
+# Landscapes can be plotted from the PersistenceForest object with the chosen label.
 pers_forest.compute_generalized_landscape_family(
     cycle_func=signed_chain_edge_length,
     max_k=6,
@@ -142,30 +142,15 @@ double_edge_forest.plot_landscape_comparison_between_functionals(labels=["signed
 
 
 # %%
-# Example of vectorisation of PersistenceForest objects using MultiLandscapeVectorizer
-
-from loopforest.forest_landscapes import MultiLandscapeVectorizer
-# 1. define functions
-cycle_funcs = [signed_chain_edge_length]
-
-# 2. Collect PersistenceForest objects
-forests_train = [pers_forest]  # list of PersistenceForest, these need to be computed depending on the given task you are working in
-forests_test  = [pers_forest]
-
-# 3. Create the vectoriser
-vec = MultiLandscapeVectorizer(
-    cycle_funcs=cycle_funcs,
+# Sample landscapes on a fixed grid to get NumPy arrays.
+grid = np.linspace(0.0, 1.0, 64)
+length_family = pers_forest.compute_generalized_landscape_family(
+    cycle_func=signed_chain_edge_length,
     max_k=3,
-    num_grid_points=64,
-    min_bar_length=0.01,
-    include_stats=True,  # adds L1/L2 norms per level
+    x_grid=grid,
+    label="length-features",
+    cache=False,
 )
-
-# 4. Fit on training forests (learns common grid)
-vec.fit(forests_train)
-
-# 5. Vectorise datasets
-X_train = vec.transform(forests_train)
-X_test  = vec.transform(forests_test)
+values = length_family.evaluate_on_grid(grid, levels=3)
 
 # %%

@@ -5,8 +5,8 @@ Implementation accompanying the manuscript on persistent cycle progressions and 
 ## What this repo provides
 - `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex, together with barcodes and cycle representatives over the filtration.
 - Plotting and animation methods for cycle representatives and barcodes in codimension 1.
-- Generalized persistence landscapes including vectorisation functions cycles like length, enclosed area and excess curvature.
-- End-to-end example in `pers_forest_example.py` showing forest construction, plotting, landscape computation, and simple ML vectorisation.
+- Generalized persistence landscapes using cycle functionals such as length, enclosed area and excess curvature.
+- End-to-end example in `pers_forest_example.py` showing forest construction, plotting and landscape computation.
 - Example for generating animations in `animation_tutorial.ipynb`.
 - Benchmark tooling in `benchmark.py` to reproduce runtime plots reported in the paper.
 - Paper figure notebook `paper-examples.ipy` was used to generate manuscript graphics.
@@ -37,7 +37,7 @@ pip install ".[animation]"
 import numpy as np
 import matplotlib.pyplot as plt
 from loopforest import PersistenceForest
-from loopforest.cycle_rep_vectorisation import signed_chain_edge_length
+from loopforest.cycle_rep_vectorisations import signed_chain_edge_length
 
 # 1) Create a point cloud
 rng = np.random.default_rng(0)
@@ -51,30 +51,34 @@ forest.plot_barcode(min_bar_length=0.01, coloring="forest")
 forest.plot_at_filtration(0.1)
 
 # 4) Generalized landscapes
-forest.compute_generalized_landscape_family(
+grid = np.linspace(0.0, 0.5, 512)
+family = forest.compute_generalized_landscape_family(
     cycle_func=signed_chain_edge_length,
     max_k=5,
-    num_grid_points=512,
+    x_grid=grid,
     label="edge-length",
 )
 forest.plot_landscape_family(label="edge-length")
+
+# Sample the first five landscape levels on the grid
+values = family.evaluate_on_grid(grid, levels=5)
 plt.show()
 ```
-Run the richer demo (plots + simple ML vectorisation) with:
+Run the richer demo with:
 ```bash
 python pers_forest_example.py
 ```
 
-## Generalized landscapes and vectorisation
+## Generalized Landscapes
 - Define cycle functionals in `cycle_rep_vectorisations.py` (examples: edge length, area, connected components, signed/unsigned variants).
 - `forest.compute_generalized_landscape_family(...)` builds families for one functional; `plot_landscape_comparison_between_functionals` contrasts multiple labels.
-- `MultiLandscapeVectorizer` turns multiple forests into fixed-length feature vectors (optionally with basic stats) for downstream ML models.
+- Use `family.evaluate_on_grid(grid, levels=max_k)` to sample landscape values numerically.
 
 ## Repository guide
 - `PersistenceForest.py` – forest construction, barcodes, plotting wrappers, generalized landscapes.
 - `forest_plotting.py` – shared plotting/animation utilities.
 - `forest_landscapes.py` – landscape computation and visualisation.
-- `cycle_rep_vectorisations.py` – cycle functionals and vectoriser.
+- `cycle_rep_vectorisations.py` – cycle functionals.
 - `color_scheme.py` – consistent color palettes across plots.
 - `pers_forest_example.py` – main usage example.
 - `animation_tutorial.ipynb` – animation example. 
