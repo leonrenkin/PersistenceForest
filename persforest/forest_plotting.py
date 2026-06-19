@@ -1,5 +1,5 @@
 """
-Shared plotting utilities for LoopForest and PersistenceForest.
+Shared plotting utilities for forest-like persistence objects.
 
 This module is designed to be *forest-agnostic*: it only assumes that a
 "forest" object provides
@@ -14,8 +14,8 @@ This module is designed to be *forest-agnostic*: it only assumes that a
       and a method
           forest.plot_at_filtration(filt_val: float, ax=None, **kwargs)
 
-Both `LoopForest` and `PersistenceForest` in this project satisfy these
-assumptions, so they can re-use these utilities.
+`PersistenceForest` satisfies these assumptions. Future forest classes can
+reuse these utilities by exposing the same small interface.
 
 Typical use inside a class:
 
@@ -1332,7 +1332,7 @@ def _animate_filtration_generic_3d_matplotlib(
             azim = azim0
         ax_scene.view_init(elev=elev0, azim=azim)
 
-    with tempfile.TemporaryDirectory(prefix="loopforest_3d_frames_") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="persforest_3d_frames_") as tmp_dir:
         frame_dir = Path(tmp_dir)
         for idx, t in enumerate(frame_times):
             fig = plt.figure(figsize=figsize)

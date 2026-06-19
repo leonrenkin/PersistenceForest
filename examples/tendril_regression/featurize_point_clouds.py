@@ -9,8 +9,8 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from loopforest import PersistenceForest
-from loopforest.cycle_rep_vectorisations import (
+from persforest import PersistenceForest
+from persforest.cycle_rep_vectorisations import (
     constant_one_functional,
     signed_chain_avg_tendril_length,
     signed_chain_circularity_complement,

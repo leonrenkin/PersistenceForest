@@ -7,8 +7,8 @@ import gudhi as gd
 # %%
 # Import PersistenceForest class
 # PersistenceForest contains methods for plotting barcodes, cycle representatives, and generalized landscapes.
-# This is the central class of the LoopForest package
-from loopforest import PersistenceForest
+# This is the central class of the persforest package.
+from persforest import PersistenceForest
 
 
 # %%
@@ -59,10 +59,10 @@ print(cycle_reps_vertex_coords)  #print first cycle representative as array of c
 # showcase of generalized landscape functionalities
 
 #import cycle functionals which map a (signed) cycle representative to a real number
-from loopforest.cycle_rep_vectorisations import signed_chain_edge_length, constant_one_functional,signed_chain_excess_curvature
+from persforest.cycle_rep_vectorisations import signed_chain_edge_length, constant_one_functional,signed_chain_excess_curvature
 
 #compute generalized landscapes
-#by default (cache=True), landscapes are saved in PersForest object with given label
+# By default (cache=True), landscapes are saved on the PersistenceForest object with the given label.
 # Landscapes can be plotted from the PersistenceForest object with the chosen label.
 pers_forest.compute_generalized_landscape_family(
     cycle_func=signed_chain_edge_length,
@@ -97,7 +97,7 @@ print(pers_forest.landscape_families['length'])
 print(pers_forest.barcode_functionals['length'])
 
 # %%
-from loopforest.cycle_rep_vectorisations import signed_chain_excess_connected_components, signed_chain_area, signed_chain_connected_components, signed_chain_connected_components, signed_chain_excess_connected_components
+from persforest.cycle_rep_vectorisations import signed_chain_excess_connected_components, signed_chain_area, signed_chain_connected_components, signed_chain_connected_components, signed_chain_excess_connected_components
 
 # New point cloud example
 double_edge_cloud = np.loadtxt("../point_cloud_csvs/signed_chain_example.csv",  delimiter=",", skiprows=1) * 100

@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     from loop_tendrils import generate_parametric_loop_tendrils
     from sampling import sample_planar_graph
-    from loopforest import PersistenceForest
+    from persforest import PersistenceForest
 
     for row in params.itertuples(index=False):
         graph = generate_parametric_loop_tendrils(

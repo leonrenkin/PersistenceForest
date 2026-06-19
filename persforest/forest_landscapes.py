@@ -947,7 +947,7 @@ def compute_generalized_landscape_family(
             Collection of per-bar kernels and λ_k landscapes on the shared grid.
         """
         if not hasattr(forest, "barcode"):
-            raise AttributeError("LoopForest has no 'barcode' attribute. Did you compute it?")
+            raise AttributeError("Forest object has no 'barcode' attribute. Did you compute it?")
 
         # 1. Filter bars by length
         bars = [
@@ -1164,7 +1164,7 @@ def plot_landscape_family(
     """
 
     if not hasattr(forest, "landscape_families"):
-        raise AttributeError("No landscape_families attribute on this LoopForest")
+        raise AttributeError("No landscape_families attribute on this forest object")
 
     family = forest.landscape_families[label]
 

@@ -11,13 +11,11 @@ Implementation accompanying the manuscript on persistent cycle progressions and 
 - Benchmark tooling in `benchmark.py` to reproduce runtime plots reported in the paper.
 - Paper figure notebook `paper-examples.ipy` was used to generate manuscript graphics.
 
-Legacy note: `LoopForest.py` is an older version kept for reference and is no longer part of the workflow.
-
 ## Installation
 Tested with Python 3.13.3.
 ```bash
-git clone https://github.com/leonrenkin/PersistenceForest.git
-cd PersistenceForest
+git clone https://github.com/leonrenkin/persforest.git
+cd persforest
 pip install .
 ```
 Optional extras:
@@ -36,8 +34,8 @@ pip install ".[animation]"
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from loopforest import PersistenceForest
-from loopforest.cycle_rep_vectorisations import signed_chain_edge_length
+from persforest import PersistenceForest
+from persforest.cycle_rep_vectorisations import signed_chain_edge_length
 
 # 1) Create a point cloud
 rng = np.random.default_rng(0)
@@ -85,7 +83,6 @@ python pers_forest_example.py
 - `benchmark.py` – runtime benchmarks.
 - `paper-examples.ipy`, `generalized_landscape_plots/`, `paper_figures/` – scripts/notebooks for paper figures.
 - `point_cloud_sampling.py`, `point_cloud_generator.py` – synthetic data utilities.
-- `LoopForest.py` – deprecated predecessor, kept only for historical reference.
 
 ## Notes
 - Animations require a working Matplotlib animation backend (Pillow or ffmpeg).

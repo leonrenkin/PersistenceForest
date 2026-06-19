@@ -1755,7 +1755,7 @@ class PersistenceForest:
             raise RuntimeError(
                 "Plotly support requires the optional dependency 'plotly'. "
                 "Install it with `pip install \".[plotly]\"` (local repo) or "
-                "`pip install loopforest[plotly]`."
+                "`pip install persforest[plotly]`."
             ) from e
         return go
 
@@ -3573,7 +3573,8 @@ class PersistenceForest:
         num_grid_points : int, optional
             Number of x-grid samples (if x_grid is None).
         mode : {"raw", "pyramid"}, optional
-            Kernel mode; "pyramid" matches the LoopForest convention.
+            Kernel mode; "pyramid" uses the standard persistence-landscape
+            tent rescaling.
         min_bar_length : float, optional
             Ignore bars with lifespan < min_bar_length.
         x_grid : np.ndarray | None, optional

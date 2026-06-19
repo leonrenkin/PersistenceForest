@@ -1,8 +1,7 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
-from loopforest.LoopForest import LoopForest
-from loopforest.PersistenceForest import PersistenceForest
+from persforest.PersistenceForest import PersistenceForest
 import seaborn as sns
 from matplotlib.patches import Rectangle, Circle
 
@@ -73,8 +72,8 @@ plt.show()
 
 
 # %% Example: Connected vs Disconnected Islands
-from loopforest.cycle_rep_vectorisations import signed_chain_excess_connected_components
-from loopforest.forest_landscapes import plot_landscape_comparison
+from persforest.cycle_rep_vectorisations import signed_chain_excess_connected_components
+from persforest.forest_landscapes import plot_landscape_comparison
 
 connected_islands_cloud = np.loadtxt("../point_cloud_csvs/circle_with_connected_inner_islands.csv",  delimiter=",", skiprows=1) *100
 disconnected_islands_cloud = connected_islands_cloud[:-7]  #remove points to disconnect inner islands
@@ -153,7 +152,7 @@ fig.savefig('paper_figures/signed_chains_for_conconnected_components.pdf', trans
 plt.show()
 
 # %%
-from loopforest.cycle_rep_vectorisations import signed_chain_excess_curvature
+from persforest.cycle_rep_vectorisations import signed_chain_excess_curvature
 
 fig, axes = plt.subplots(ncols=2,nrows=2,figsize = (3,1.5), sharex='col', sharey='row', layout='constrained')
 for i, forest in enumerate(forests):
@@ -215,8 +214,7 @@ points = rng.uniform(low=0.0, high=2*np.pi, size=num_points)
 points = np.sqrt(np.abs(np.cos(1.5*points))+.1)[:,None] * np.column_stack((np.cos(points), np.sin(points))) + rng.normal(scale=0.05, size=(num_points,2))
 pers_forest = PersistenceForest(points)
 
-#change start color for loop forest - you can pick a color of your choosing here
-#this color map will be used in all consecutive plots for this forest
+# Change the forest start color. This color map is used in consecutive plots for this forest.
 pers_forest._build_color_map_forest(start_color="#5ace2c")
 
 alpha_max = max(v for (_,v) in pers_forest.filtration)
@@ -238,7 +236,7 @@ plt.show()
 # %% Example: Point clouds with barcodes
 
 from point_cloud_sampling import sample_noisy_circle, sample_noisy_star,  sample_noisy_ellipse,  sample_noisy_circle_with_tendril, sample_noisy_star_pointy
-from loopforest.cycle_rep_vectorisations import polygon_area, polygon_length, polygon_length_squared_area_ratio_normalized, curvature_excess
+from persforest.cycle_rep_vectorisations import polygon_area, polygon_length, polygon_length_squared_area_ratio_normalized, curvature_excess
 
 n_points = 1000
 
@@ -279,7 +277,7 @@ fig.savefig('paper_figures/point_clouds_with_barcodes.pdf', transparent=True, dp
 plt.show()
 
 # %% Example: Measurement comparisons
-from loopforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_excess_curvature
+from persforest.cycle_rep_vectorisations import signed_chain_area, signed_chain_edge_length, signed_chain_excess_curvature, signed_chain_circularity_complement
 fig, axes = plt.subplots(nrows=2,ncols=3, figsize=(4, 1.5), sharex='col', layout='constrained')
 
 cycle_funcs_list = [
@@ -291,7 +289,7 @@ cycle_funcs_list = [
 use_signed = False
 
 
-from loopforest.forest_landscapes import plot_landscape_comparison
+from persforest.forest_landscapes import plot_landscape_comparison
 
 forests = [forest for _, forest in name_forest_list]
 forest_labels = [name for name, _ in name_forest_list]
@@ -356,8 +354,11 @@ pts = np.vstack([
     2.5*sample_four_leaf_clover(50, noise=0.01, R = (np.pi, 1.5*np.pi)),
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
-forest = LoopForest(pts)
-landscapes = forest.compute_generalized_landscape_family(polygon_length_squared_area_ratio_normalized, x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200))
+forest = PersistenceForest(pts)
+landscapes = forest.compute_generalized_landscape_family(
+    signed_chain_circularity_complement,
+    x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200),
+)
 fig1 = plt.figure(figsize=(1,1))
 ax1 = fig1.gca()
 ax1.set_aspect('equal')
@@ -416,7 +417,7 @@ axes[0].set_title("Point Cloud")
 axes[0].set_xlim(0,100)
 axes[0].set_ylim(0,100)
 
-from loopforest.cycle_rep_vectorisations import signed_chain_circularity_complement, constant_one_functional
+from persforest.cycle_rep_vectorisations import signed_chain_circularity_complement, constant_one_functional
 
 forest_6_holes.compute_generalized_landscape_family(cycle_func=constant_one_functional,
                                                     label = "standard", 
@@ -464,7 +465,7 @@ axes[0].set_title("Point Cloud")
 axes[0].set_xlim(0,100)
 axes[0].set_ylim(0,100)
 
-from loopforest.cycle_rep_vectorisations import signed_chain_circularity_complement, signed_chain_circularity, constant_one_functional
+from persforest.cycle_rep_vectorisations import signed_chain_circularity_complement, signed_chain_circularity, constant_one_functional
 
 forest_6_holes.compute_generalized_landscape_family(cycle_func=constant_one_functional,
                                                     label = "standard", 
@@ -504,7 +505,7 @@ plt.show()
 
 # %%
 import numpy as np
-from loopforest.PersistenceForest import PersistenceForest
+from persforest.PersistenceForest import PersistenceForest
 
 def add_noisy_circle_points(point_cloud, n, r, c, noise_std=0.005, seed=30):
     rng = np.random.default_rng(seed)

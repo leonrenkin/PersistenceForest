@@ -6,7 +6,7 @@ different point-cloud sampling schemes and point counts.
 
 Output
 ------
-A CSV file (default: `persistence_forest_benchmark.csv`) with columns:
+A CSV file (default: `persforest_benchmark.csv`) with columns:
 
     sampler                     - name of the sampling method
     n_points                    - number of points in the point cloud
@@ -15,7 +15,7 @@ A CSV file (default: `persistence_forest_benchmark.csv`) with columns:
     reduce                      - 1 if reduction was used, 0 otherwise
     compute_barcode             - 1 if barcodes were computed, 0 otherwise
     time_point_cloud_s          - time to generate the point cloud
-    time_persistence_forest_s   - time to construct PersistenceForest
+    time_persforest_s          - time to construct PersistenceForest
     time_total_s                - total time (generation + forest)
     seed                        - random seed used for this run
 
@@ -49,7 +49,7 @@ plt.rcParams.update({
 import numpy as np
 
 # Local imports
-from loopforest.PersistenceForest import PersistenceForest
+from persforest.PersistenceForest import PersistenceForest
 from point_cloud_sampling import (
     sample_noisy_circle,
     sample_uniform_points,
@@ -221,7 +221,7 @@ def benchmark_single_run(
         "dim": dim,
         "reduce": int(bool(reduce)),
         "compute_barcode": int(bool(compute_barcode)),
-        "time_persistence_forest_s": t_pf_end - t_pf_start,
+        "time_persforest_s": t_pf_end - t_pf_start,
         "seed": int(seed),
     }
 
@@ -276,7 +276,7 @@ def benchmark_suite(
         "dim",
         "reduce",
         "compute_barcode",
-        "time_persistence_forest_s",
+        "time_persforest_s",
         "seed",
     ]
 
@@ -318,7 +318,7 @@ def benchmark_suite(
 def plot_runtimes_from_csv(
     csv_path: Optional[str],
     methods: Sequence[str],
-    time_column: str = "time_persistence_forest_s",
+    time_column: str = "time_persforest_s",
     ax = None,
     show_std: bool = True,
     save_dir: Optional[str]=None,
@@ -343,7 +343,7 @@ def plot_runtimes_from_csv(
     methods:
         Iterable of sampler names (the `sampler` column in the CSV) to plot.
     time_column:
-        Which time column to use, e.g. "time_persistence_forest_s"
+        Which time column to use, e.g. "time_persforest_s"
         or "time_total_s".
     ax:
         Optional existing matplotlib Axes to draw on. If None, a new
@@ -480,7 +480,7 @@ def plot_benchmark_grid(
         plot_runtimes_from_csv(
             csv_path=_benchmark_path(bench_name, "csv"),
             methods=methods,
-            time_column="time_persistence_forest_s",
+            time_column="time_persforest_s",
             label_dict=label_dict,
             color_dict=color_dict,
             linestyle_dict=linestyle_dict,
@@ -522,7 +522,7 @@ def plot_benchmark_row(
         plot_runtimes_from_csv(
             csv_path=_benchmark_path(bench_name, "csv"),
             methods=methods,
-            time_column="time_persistence_forest_s",
+            time_column="time_persforest_s",
             label_dict=label_dict,
             color_dict=color_dict,
             linestyle_dict=linestyle_dict,
