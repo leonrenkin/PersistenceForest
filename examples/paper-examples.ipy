@@ -7,25 +7,34 @@ from matplotlib.patches import Rectangle, Circle
 
 plt.rcParams.update({
     "text.usetex": True,
-    "font.family": "sans-serif",
-    "text.latex.preamble": r"\usepackage{sfmath}",
-    "font.size": 6,
-    "axes.titlesize": 8,
+    "font.family": "serif",
+    "font.size": 10,
     "axes.labelsize": 8,
+    "xtick.labelsize": 6,
+    "ytick.labelsize": 6,
+    "legend.fontsize": 6,
+    "axes.titlesize": 10,
     "figure.dpi": 300,
-    "legend.handlelength": 0.5,
-    "legend.frameon": False,
     "axes.grid": False,
     "grid.color": "#d3d3d3",
-    "grid.linewidth": 0.5
+    "grid.linewidth": 0.5,
+    "axes.linewidth": 0.8,
+    "figure.facecolor": "white",
+    "savefig.facecolor": "white",
 })
+
+latex_textwidth = 448.13095
+latex_linewidth = 448.13095
+
+inches_per_pt = 1/72.27
+width = latex_linewidth * inches_per_pt
 
 %load_ext autoreload
 %autoreload 3
 !mkdir -p paper_figures
 
 
-#%%
+#%% #signed brides
 double_edge_cloud =np.loadtxt("../point_cloud_csvs/signed_chain_example.csv",  delimiter=",", skiprows=1)
 double_edge_forest = PersistenceForest( point_cloud=double_edge_cloud )
 
@@ -57,7 +66,7 @@ for ax, label in zip(axes, (fr"$X$", fr"$Y$")):
     # )
 fig.savefig(f"paper_figures/different_spaces_with_same_cycles.pdf", dpi=300, transparent=True, bbox_inches='tight', pad_inches=0.02)
 plt.show()
-# %%
+#%% #signed brides with orientation arrows
 
 fig, axes = plt.subplots(ncols=2, nrows=1, figsize = (3,1.5))
 double_edge_forest.plot_at_filtration(ax = axes[1], filt_val=0.15,style_2d={"show_orientation_arrows":True, "cycle_edge_width":0.8} , signed=True, title="Signed Cycle",show=False,)
@@ -116,7 +125,7 @@ axes[1].set_title("point cloud $Y$")
 fig.show()
 
 fig.savefig('paper_figures/signed_chains_for_conconnected_components1.pdf', transparent=True, dpi=300, bbox_inches='tight')
-# %%
+# %% #signed chains for connected components (old)
 fig, axes = plt.subplots(ncols=2,nrows=2,figsize = (3,1.5), sharex='col', sharey='row', layout='constrained')
 for i, forest in enumerate(forests):
     forest.plot_barcode_measurement(cycle_func=signed_chain_excess_connected_components, ax = axes[0,0], signed=False, title = "unsigned", label = forest_labels[i], show_baseline = False, x_range = (0,40), lw=1, zorder=10, clip_on=False)
@@ -148,62 +157,6 @@ fig.supylabel(fr"$f$ = excess \# conn.\ cpts.")
 
 fig.tight_layout(h_pad=2, w_pad=.5)
 fig.savefig('paper_figures/signed_chains_for_conconnected_components.pdf', transparent=True, dpi=300, bbox_inches='tight')
-
-plt.show()
-
-# %%
-from persforest.cycle_rep_vectorisations import signed_chain_excess_curvature
-
-fig, axes = plt.subplots(ncols=2,nrows=2,figsize = (3,1.5), sharex='col', sharey='row', layout='constrained')
-for i, forest in enumerate(forests):
-    forest.plot_barcode_measurement(cycle_func=signed_chain_excess_curvature, ax = axes[0,0], signed=False, title = "unsigned", label = forest_labels[i], show_baseline = False, x_range = (0,50), lw=1, zorder=10, clip_on=False)
-    forest.plot_barcode_measurement(cycle_func=signed_chain_excess_curvature, ax = axes[0,1], signed=True, title = "signed", label = forest_labels[i], show_baseline = False, x_range = (0,50), lw=1, zorder=10, clip_on=False)
-for i in range(2):
-    # axes[0, i].set_box_aspect(1)
-    axes[0, i].set_ylim([0,55])
-    axes[0, i].set_yticks(np.linspace(0,50,5))
-    axes[0, i].set_xlim([0,50])
-
-for object in forests:
-    object.compute_generalized_landscape_family(
-        cycle_func=signed_chain_excess_curvature,
-        max_k=6,
-        num_grid_points=1000,
-        label="signed excess curvature",
-        signed=True,
-        x_grid=np.linspace(0,50,1000))   
-
-    object.compute_generalized_landscape_family(
-        cycle_func=signed_chain_excess_curvature,
-        max_k=6,
-        num_grid_points=1000,
-        label="unsigned excess curvature",
-        signed=False,
-        x_grid=np.linspace(0,50,1000))   
-
-labels = ["unsigned excess curvature","signed excess curvature"]
-
-for j, label in enumerate(labels):
-    title = ""
-    plot_landscape_comparison(forests=forests, label=label, ax=axes[1,j],title=title, zorder=10, clip_on=False) #foresto_labels=forest_labels,
-    axes[1,j].set_xlim([0,50])
-    axes[1,j].set_ylim([0,450])
-    # axes[1,j].set_box_aspect(1)
-    axes[1,j].set_xlabel(None)
-    axes[1,j].set_ylabel(None)
-
-for axs in axes:
-    for ax in axs:
-        ax.grid(False)
-
-axes[0,0].legend()
-axes[0,0].set_ylabel(fr"$f \circ \gamma$")
-axes[1,0].set_ylabel(fr"$\lambda_1(-, f)$")
-fig.align_ylabels()
-fig.supylabel(fr"$f$ = excess \# curvature.")
-
-fig.tight_layout(h_pad=2, w_pad=.5)
-fig.savefig('paper_figures/signed_chains_for_excess_curvature.pdf', transparent=True, dpi=300, bbox_inches='tight')
 
 plt.show()
 
@@ -341,7 +294,7 @@ fig.savefig('paper_figures/point_clouds_landscape_comparisons.pdf', transparent=
 plt.show()
 
 
-# %% Plot for intro
+# %% four leaf clover
 def sample_four_leaf_clover(n, r=1.0, noise=0.0, R = (0, 2*np.pi)):
     t = np.random.uniform(R[0], R[1], n)
     p = (r * np.sin(2*t))[:, None] * np.column_stack((np.cos(t), np.sin(t)))
@@ -355,20 +308,22 @@ pts = np.vstack([
 ])
 pts = pts[np.linalg.norm(pts, axis=1) > 0.25]
 forest = PersistenceForest(pts)
+forest.set_longest_bar_colors(coloring = "forest", colors = [ "#0ec801",  "#a454f8",  "#e7298a",  "#17becf",   "#bcbd22",   "#b15928",  "#fdb462",  "#7570b3", "#66a61e"])
 landscapes = forest.compute_generalized_landscape_family(
     signed_chain_circularity_complement,
     x_grid=np.linspace(-1.5/20, 1.5+1.5/20, 200),
+    label = "circularity_complement"
 )
 fig1 = plt.figure(figsize=(1,1))
 ax1 = fig1.gca()
 ax1.set_aspect('equal')
-ax1.scatter(*pts.T, s=1, color='black')
+ax1.scatter(*pts.T, s=0.5, color='black')
 ax1.set_axis_off()
 fig1.tight_layout(pad=0.0)
 fig1.savefig("paper_figures/four_leaf_clover_landscapes.pdf", dpi=300, transparent=True)
 
 fig2, axs2 = plt.subplots(nrows=2, figsize=(4,.8))
-forest.plot_barcode(ax=axs2[0], max_bars=12, sort="length", coloring="forest", title="", lw=1)
+forest.plot_barcode(ax=axs2[0], max_bars=12, sort="length", coloring="forest", title="", bar_width=1.3)
 axs2[0].set_xlabel("")
 axs2[0].set_yticks([])
 axs2[0].set_xticks(np.linspace(0, 1.5, 10))
@@ -384,7 +339,7 @@ axs2[1].tick_params(axis='x', which='both', length=0)
 axs2[1].set_xlabel(None)
 axs2[1].legend(loc='upper left', frameon=False)
 axs2[1].grid()
-axs2[1].set_ylim((0,1))
+axs2[1].set_ylim((0,0.08))
 
 fig2.tight_layout(h_pad=0, w_pad=0.0)
 fig2.subplots_adjust(left=0, right=1, top=1, bottom=0)
@@ -392,26 +347,29 @@ fig2.savefig("paper_figures/four_leaf_clover_landscapes2.pdf", dpi=300, transpar
 
 N = axs2[0].get_xticks().shape[0]
 fig3, axs3 = plt.subplots(ncols=N, figsize=(4,.4), sharex=True, sharey=True)
+style_dict_2d = {'complex_edge_width':0.2, 'cycle_edge_width':1.2}
 for (ax, t) in zip(axs3, axs2[0].get_xticks()):
     ax.set_aspect('equal')
     ax.set_box_aspect(1)
     ax.set_xticks([])
     ax.set_yticks([])
-    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1)
+    forest.plot_at_filtration(filt_val=t, ax=ax, title="", show=False, vertex_size=1, style_2d = style_dict_2d, point_zorder=4.5)
 fig3.tight_layout(pad=.5)
 fig3.subplots_adjust(left=0, right=1, top=1, bottom=0)
 fig3.savefig("paper_figures/four_leaf_clover_landscapes3.pdf", dpi=300, transparent=True)
 
 
-#%%
+#%% Non-circularity landscapes
 x_max = 31
 seed =5
 from point_cloud_sampling import sample_points_without_balls
 points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
 forest_6_holes = PersistenceForest(points_with_6_holes)
 
-fig, axes = plt.subplots(ncols=3,figsize=(10.5,3))
-forest_6_holes.plot_at_filtration(0,ax=axes[0], coloring="forest", vertex_size=2, show=False)
+ratios = [1,1.2,1.2]
+
+fig, axes = plt.subplots(ncols=3,figsize=(width,width*0.3), gridspec_kw={"width_ratios": ratios, 'wspace':0.25})
+forest_6_holes.plot_at_filtration(0,ax=axes[0], coloring="forest", vertex_size=1.3, show=False)
 #ax.set_axis_off()
 axes[0].set_title("Point Cloud")
 axes[0].set_xlim(0,100)
@@ -419,14 +377,23 @@ axes[0].set_ylim(0,100)
 
 from persforest.cycle_rep_vectorisations import signed_chain_circularity_complement, constant_one_functional
 
+
 forest_6_holes.compute_generalized_landscape_family(cycle_func=constant_one_functional,
                                                     label = "standard", 
                                                     signed=False,
                                                     max_k=7,
                                                     x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_landscape_family(ax=axes[1], label="standard", show = False)
-axes[1].set_title("Standard Persistence Landscapes")
-axes[1].legend(frameon=False)
+forest_6_holes.plot_landscape_family(ax=axes[1], label="standard", show = False,linewidth=1.3)
+axes[1].set_title("Persistence Landscapes", fontsize = 10)
+axes[1].legend(
+    frameon=False,
+    fontsize=6,
+    handlelength=0.8,   # length of colored line segment
+    #handletextpad=0.3,  # gap between line and text
+    borderpad=0.2,      # padding inside legend box
+    labelspacing=0.3,   # vertical space between entries
+    columnspacing=0.5,
+)
 axes[1].grid(False)
 axes[1].set_xlim(0,x_max)
 axes[1].set_ylim(bottom=0)
@@ -439,71 +406,31 @@ forest_6_holes.compute_generalized_landscape_family(cycle_func=signed_chain_circ
                                                     signed=False,
                                                     max_k=7,
                                                     x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_landscape_family(ax=axes[2], label="circularity_complement", show = False)
-axes[2].set_title("Non-Circularity Persistence Landscapes")
-axes[2].legend(frameon=False)
+forest_6_holes.plot_landscape_family(ax=axes[2], label="circularity_complement", show = False, linewidth=1.3)
+axes[2].set_title("Non-Circularity Landscapes")
+axes[2].legend(
+    frameon=False,
+    fontsize=6,
+    handlelength=0.8,   # length of colored line segment
+    #handletextpad=0.3,  # gap between line and text
+    borderpad=0.2,      # padding inside legend box
+    labelspacing=0.3,   # vertical space between entries
+    columnspacing=0.5,
+)
 axes[2].grid(False)
 axes[2].set_xlim(0,x_max)
 axes[2].set_ylim(bottom=0)
 axes[2].set_xlabel("")
 axes[2].set_ylabel("")
 
+axes[0].set_box_aspect(1)
+axes[1].set_box_aspect(ratios[0] / ratios[1])
+axes[2].set_box_aspect(ratios[0] / ratios[2])
+
 fig.savefig(f"paper_figures/circle_6holes_random_points_non-circularity-landscapes_seed{seed}.pdf",dpi=300, transparent=True)
 plt.show()
-# %%
-x_max = 31
-seed =11
-y_max =14
-from point_cloud_sampling import sample_points_without_balls
-points_with_6_holes = sample_points_without_balls(3000, dim=2, num_discs=6, radius_range=[0.09,0.15], seed=seed) * 100
-forest_6_holes = PersistenceForest(points_with_6_holes)
 
-fig, axes = plt.subplots(ncols=4,figsize=(12,3))
-forest_6_holes.plot_at_filtration(0,ax=axes[0], coloring="forest", vertex_size=2, show=False)
-#ax.set_axis_off()
-axes[0].set_title("Point Cloud")
-axes[0].set_xlim(0,100)
-axes[0].set_ylim(0,100)
-
-from persforest.cycle_rep_vectorisations import signed_chain_circularity_complement, signed_chain_circularity, constant_one_functional
-
-forest_6_holes.compute_generalized_landscape_family(cycle_func=constant_one_functional,
-                                                    label = "standard", 
-                                                    signed=False,
-                                                    max_k=7,
-                                                    x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_landscape_family(ax=axes[1], label="standard", show = False)
-axes[1].set_title("Standard Persistence Landscapes")
-
-
-forest_6_holes.compute_generalized_landscape_family(cycle_func=signed_chain_circularity,
-                                                    label = "circularity", 
-                                                    signed=False,
-                                                    max_k=7,
-                                                    x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_landscape_family(ax=axes[2], label="circularity", show = False)
-axes[2].set_title("Circularity Landscapes")
-
-
-forest_6_holes.compute_generalized_landscape_family(cycle_func=signed_chain_circularity_complement,
-                                                    label = "circularity_complement", 
-                                                    signed=False,
-                                                    max_k=7,
-                                                    x_grid= np.linspace(0,x_max,500))
-forest_6_holes.plot_landscape_family(ax=axes[3], label="circularity_complement", show = False)
-axes[3].set_title("Circularity Complement Landscapes")
-for i in [1,2,3]:
-    axes[i].legend(frameon=False)
-    axes[i].grid(False)
-    axes[i].set_xlim(0,x_max)
-    axes[i].set_ylim(0,13.5)
-    axes[i].set_xlabel("")
-    axes[i].set_ylabel("")
-
-fig.savefig(f"paper_figures/circle_6holes_random_points_circularity_and_non-circularity-landscapes_seed{seed}.pdf",dpi=300, transparent=True)
-plt.show()
-
-# %%
+# %% circle with tendril
 import numpy as np
 from persforest.PersistenceForest import PersistenceForest
 
@@ -549,26 +476,4 @@ ax[1].set_title("Signed Cycle")
 #ax[1].set_axis_off()
 fig.savefig(f"paper_figures/circle_tendril_unsigned_vs_signed.pdf",dpi=300, transparent=True)
 
-# %%
-forest_line_in_circle.compute_generalized_landscape_family(
-        cycle_func=signed_chain_excess_curvature,
-        max_k=6,
-        num_grid_points=1000,
-        label="signed excess curvature",
-        signed=True,
-        x_grid=np.linspace(0,1,1000)) 
-
-forest_line_in_circle.compute_generalized_landscape_family(
-        cycle_func=signed_chain_excess_curvature,
-        max_k=6,
-        num_grid_points=1000,
-        label="unsigned excess curvature",
-        signed=False,
-        x_grid=np.linspace(0,1,1000)) 
-
-fig, ax = plt.subplots()
-forest_line_in_circle.plot_landscape_family(ax=ax, label="signed excess curvature", show = False)
-forest_line_in_circle.plot_landscape_family(ax=ax, label="unsigned excess curvature", show = False)
-ax.set_title("Excess Curvature Landscapes")
-plt.show()
 # %%
