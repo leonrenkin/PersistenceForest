@@ -6,6 +6,7 @@ Implementation accompanying the manuscript on persistent cycle progressions and 
 - `PersistenceForest` (primary entry point) builds the forest of optimal cycles for an alpha complex, together with barcodes and cycle representatives over the filtration.
 - Plotting and animation methods for cycle representatives and barcodes in codimension 1.
 - Generalized persistence landscapes using cycle functionals such as length, enclosed area and excess curvature.
+- Beginner-friendly tutorial notebooks in `examples/tutorials/`.
 - End-to-end example in `pers_forest_example.py` showing forest construction, plotting and landscape computation.
 - Example for generating animations in `animation_tutorial.ipynb`.
 - Benchmark tooling in `benchmark.py` to reproduce runtime plots reported in the paper.
@@ -64,8 +65,10 @@ plt.show()
 ```
 Run the richer demo with:
 ```bash
-python pers_forest_example.py
+python examples/pers_forest_example.py
 ```
+
+For guided notebooks, start with `examples/tutorials/README.md`.
 
 ## Generalized Landscapes
 - Define cycle functionals in `cycle_rep_vectorisations.py` (examples: edge length, area, connected components, signed/unsigned variants).
@@ -78,6 +81,7 @@ python pers_forest_example.py
 - `forest_landscapes.py` – landscape computation and visualisation.
 - `cycle_rep_vectorisations.py` – cycle functionals.
 - `color_scheme.py` – consistent color palettes across plots.
+- `examples/tutorials/` – concise user tutorials for visualization, extraction, animation and generalized landscapes.
 - `pers_forest_example.py` – main usage example.
 - `animation_tutorial.ipynb` – animation example. 
 - `benchmark.py` – runtime benchmarks.
